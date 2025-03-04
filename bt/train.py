@@ -144,9 +144,10 @@ for iepoch in range(args.nepoch):
             losses.append(loss.item())
             loss.backward()
             optimizer.step()
-            pbar.update()
-            mem = psutil.virtual_memory()
-            pbar.postfix = f"{mem.used/2**30:.03f}/{mem.total/2**30:.03f}"
+            if args.tqdm:
+                pbar.update()
+                mem = psutil.virtual_memory()
+                pbar.postfix = f"{mem.used/2**30:.03f}/{mem.total/2**30:.03f}"
     mean_loss = np.mean(losses)
     mean_losses.append(mean_loss)
     df_epoch = pd.DataFrame({'loss': mean_losses})
