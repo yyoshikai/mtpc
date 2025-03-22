@@ -77,22 +77,14 @@ for wsi_name in df_wsi.index:
 ## additional data
 if args.add_data:
     for wsi_idx in range(1, 106):
-        region_datas0 = [
-            MTPCUHRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)
-        ]
-        data0.append(region_datas0)
+        data0.append([MTPCUHRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)])
     for wsi_idx in range(1, 55):
-        region_datas0 = [
-            MTPCVDRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)
-        ]
-        data0.append(region_datas0)
+        data0.append([MTPCVDRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)])
 ## add shuffle augmentation
 match args.shuffle_aug:
     case 'region':
         data = ConcatDataset([
-            ConcatDataset([
-                ShuffleAugmentDataset(region_data) for region_data in region_datas
-            ]) for region_datas in data0
+            ConcatDataset([ShuffleAugmentDataset(region_data) for region_data in region_datas]) for region_datas in data0
         ])
         data0, data1 = untuple_dataset(data, 2)
     case 'wsi':
