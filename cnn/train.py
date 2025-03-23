@@ -49,7 +49,6 @@ if args.target == 'find':
     label_data = InDataset(label_data, LABEL_TYPES[LABEL_TYPES.index(args.positive_th):])
     data = StackDataset(image_data, label_data)
 else:
-
     datas = []
     for wsi_idx in range(1, 106):
         datas.append([MTPCUHRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)])
