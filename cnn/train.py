@@ -60,7 +60,7 @@ else:
         datas += [MTPCVDRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
     data = ConcatDataset(datas)
     data = BaseAugmentDataset(data)
-    df = pd.read_csv("/workspace/mtpc/cnn/split/add_patch.csv", index_col=0)
+    df = pd.read_csv(f"{WORKDIR}/mtpc/cnn/split/add_patch.csv", index_col=0)
     label_data = TensorDataset(torch.Tensor(df[args.target]))
     data = StackDataset(data, label_data)
     split_dir = f"./split/add/{args.split}"
