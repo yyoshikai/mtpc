@@ -174,3 +174,4 @@ for epoch in range(args.n_epoch):
         if stop_epoch >= 5:
             torch.save(model.state_dict(), f"{result_dir}/models/{epoch}.pth")
             break
+print(f"training {args.studyname} finished!")
