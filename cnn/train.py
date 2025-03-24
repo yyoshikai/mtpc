@@ -4,7 +4,7 @@ import numpy as np, pandas as pd, torch, torch.nn as nn
 from torch.optim import lr_scheduler
 from torch.utils.data import StackDataset, Subset, DataLoader, ConcatDataset, TensorDataset
 from torchvision.models import resnet50, ResNet50_Weights
-from sklearn.metrics import roc_auc_score, average_precision_score
+from sklearn.metrics import roc_auc_score, average_precision_score, r2_score, mean_squared_error, mean_absolute_error
 WORKDIR = os.environ.get('WORKDIR', '/workspace')
 sys.path += [f'{WORKDIR}/mtpc', WORKDIR]
 from src.utils.logger import add_stream_handler, add_file_handler, get_logger
@@ -19,13 +19,16 @@ parser.add_argument("--studyname", required=True)
 parser.add_argument("--batch-size", type=int, default=64)
 parser.add_argument("--split", required=True)
 parser.add_argument("--n-epoch", type=int, default=20)
-parser.add_argument("--positive-th", required=True, choices=LABEL_TYPES[1:])
+parser.add_argument("--positive-th", choices=LABEL_TYPES[1:])
 parser.add_argument("--num-workers", type=int, default=28)
 parser.add_argument("--tqdm", action='store_true')
 parser.add_argument("--compile", action='store_true')
 parser.add_argument("--duplicate", default='ask')
 parser.add_argument("--early-stop", type=int)
-parser.add_argument("--target", default='find', choices=['find', 'bio', 'acantholysis', 'dyskeratosis'])
+parser.add_argument("--add", action='store_true')
+parser.add_argument("--target", choices=['bio', 'acantholysis', 'dyskeratosis'], 
+        help='Ignored when not --add')
+parser.add_argument("--reg", action='store_true')
 args = parser.parse_args()
 
 # Environment
@@ -42,26 +45,30 @@ with open(f"{result_dir}/args.yaml", 'w') as f:
 
 # Data
 
-if args.target == 'find':
-    data = MTPCDataset(256)
-    image_data, label_data = untuple_dataset(data, 2)
-    image_data = BaseAugmentDataset(image_data)
-    label_data = InDataset(label_data, LABEL_TYPES[LABEL_TYPES.index(args.positive_th):])
-    data = StackDataset(image_data, label_data)
-else:
-
+if args.add:
+    assert args.target is not None
     datas = []
     for wsi_idx in range(1, 106):
-        datas.append([MTPCUHRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)])
+        datas += [MTPCUHRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
     for wsi_idx in range(1, 55):
-        datas.append([MTPCVDRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)])
+        datas += [MTPCVDRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
     data = ConcatDataset(datas)
     data = BaseAugmentDataset(data)
     df = pd.read_csv("/workspace/mtpc/cnn/split/add_patch.csv", index_col=0)
     label_data = TensorDataset(torch.Tensor(df[args.target]))
     data = StackDataset(data, label_data)
-train_data = Subset(data, np.load(f"./split/results/{args.split}/train.npy"))
-test_data = Subset(data, np.load(f"./split/results/{args.split}/test.npy"))
+    split_dir = f"./split/add/{args.split}"
+else:
+    assert args.positive_th is not None
+    data = MTPCDataset(256)
+    image_data, label_data = untuple_dataset(data, 2)
+    image_data = BaseAugmentDataset(image_data)
+    label_data = InDataset(label_data, LABEL_TYPES[LABEL_TYPES.index(args.positive_th):])
+    data = StackDataset(image_data, label_data)
+    split_dir = f"./split/results/{args.split}"
+
+train_data = Subset(data, np.load(f"{split_dir}/train.npy"))
+test_data = Subset(data, np.load(f"{split_dir}/val.npy"))
 
 loader = DataLoader(train_data, args.batch_size, True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=5, persistent_workers=True)
 test_loader = DataLoader(test_data, args.batch_size*2, False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=5, persistent_workers=True)
@@ -87,15 +94,21 @@ model = Model()
 model.to(device)
 if args.compile:
     model = torch.compile(model)
-criterion = nn.BCEWithLogitsLoss(reduction='mean')
+if args.reg:
+    criterion = nn.MSELoss(reduction='mean')
+else:
+    criterion = nn.BCEWithLogitsLoss(reduction='mean')
 optimizer = torch.optim.Adam(model.parameters())
 scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
 
 # Train
 context = tqdm if args.tqdm else lambda x: x
 losses = []
-dfscore = pd.DataFrame(columns=['epoch', 'AUROC', 'AUPR'])
-best_score = 0.0
+if args.reg:
+    dfscore = pd.DataFrame(columns=['epoch', 'R^2', 'RMSE', 'MAE'])
+else:
+    dfscore = pd.DataFrame(columns=['epoch', 'AUROC', 'AUPR'])
+best_score = None
 stop_epoch = 0
 for epoch in range(args.n_epoch):
     
@@ -103,7 +116,9 @@ for epoch in range(args.n_epoch):
     for image_batch, label_batch in context(loader):
         optimizer.zero_grad()
         pred_batch = model(image_batch.to(device))
-        loss = criterion(pred_batch, label_batch.to(device).to(torch.float))
+        if args.add:
+            label_batch = label_batch[0]
+        loss = criterion(pred_batch, label_batch.to(torch.float).to(device))
         loss.backward()
         losses.append(loss.item())
         optimizer.step()
@@ -125,21 +140,35 @@ for epoch in range(args.n_epoch):
     labels = []
     with torch.inference_mode():
         for i, (image_batch, label_batch) in enumerate(context(test_loader)):
+            if args.add:
+                label_batch = label_batch[0]
             pred_batch = model(image_batch.to(device))
             preds.append(pred_batch.cpu().numpy())
             labels.append(label_batch.numpy())
     preds = np.concatenate(preds)
     labels = np.concatenate(labels)
-    dfscore.loc[epoch] = {
-        'epoch': epoch, 
-        'AUROC': roc_auc_score(labels, preds),
-        'AUPR': average_precision_score(labels, preds)
-    }
+    if args.reg:
+        dfscore.loc[epoch] = {
+            'epoch': epoch, 
+            'R^2': r2_score(labels, preds),
+            'RMSE': mean_squared_error(labels, preds)**0.5,
+            'MAE': mean_absolute_error(labels, preds)
+        }
+    else:
+        labels = labels.astype(int)
+        dfscore.loc[epoch] = {
+            'epoch': epoch, 
+            'AUROC': roc_auc_score(labels, preds),
+            'AUPR': average_precision_score(labels, preds)
+        }
     dfscore.to_csv(f"{result_dir}/score.csv", index=False)
 
     ## Early stopping
-    score = dfscore.loc[epoch, 'AUROC']
-    if best_score < score:
+    if args.reg:
+        score = -dfscore.loc[epoch, 'RMSE']
+    else:
+        score = dfscore.loc[epoch, 'AUROC']
+    if best_score is None or best_score < score:
         best_score = score
         stop_epoch = 0
     else:
