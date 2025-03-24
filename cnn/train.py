@@ -45,8 +45,14 @@ with open(f"{result_dir}/args.yaml", 'w') as f:
 
 # Data
 
-if args.add:
-    assert args.target is not None
+if args.target == 'find':
+    data = MTPCDataset(256)
+    image_data, label_data = untuple_dataset(data, 2)
+    image_data = BaseAugmentDataset(image_data)
+    label_data = InDataset(label_data, LABEL_TYPES[LABEL_TYPES.index(args.positive_th):])
+    data = StackDataset(image_data, label_data)
+    split_dir = f"./split/results/{args.split}"
+else:
     datas = []
     for wsi_idx in range(1, 106):
         datas += [MTPCUHRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
@@ -58,14 +64,6 @@ if args.add:
     label_data = TensorDataset(torch.Tensor(df[args.target]))
     data = StackDataset(data, label_data)
     split_dir = f"./split/add/{args.split}"
-else:
-    assert args.positive_th is not None
-    data = MTPCDataset(256)
-    image_data, label_data = untuple_dataset(data, 2)
-    image_data = BaseAugmentDataset(image_data)
-    label_data = InDataset(label_data, LABEL_TYPES[LABEL_TYPES.index(args.positive_th):])
-    data = StackDataset(image_data, label_data)
-    split_dir = f"./split/results/{args.split}"
 
 train_data = Subset(data, np.load(f"{split_dir}/train.npy"))
 test_data = Subset(data, np.load(f"{split_dir}/val.npy"))
