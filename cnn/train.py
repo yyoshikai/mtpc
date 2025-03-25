@@ -3,7 +3,6 @@ from tqdm import tqdm
 import numpy as np, pandas as pd, torch, torch.nn as nn
 from torch.optim import lr_scheduler
 from torch.utils.data import StackDataset, Subset, DataLoader, ConcatDataset, TensorDataset
-from torchvision.models import resnet50, ResNet50_Weights
 from sklearn.metrics import roc_auc_score, average_precision_score, r2_score, mean_squared_error, mean_absolute_error
 WORKDIR = os.environ.get('WORKDIR', '/workspace')
 sys.path += [f'{WORKDIR}/mtpc', WORKDIR]
@@ -11,6 +10,7 @@ from src.utils.logger import add_stream_handler, add_file_handler, get_logger
 from src.utils.path import make_dir
 from src.data import untuple_dataset, MTPCDataset, BaseAugmentDataset, InDataset
 from src.data.mtpc import MTPCUHRegionDataset, MTPCVDRegionDataset
+from src.model import ResNetModel as Model
 LABEL_TYPES = ['Other', 'Normal', 'Mild', 'Moderate', 'Severe']
 
 # Argument
@@ -66,28 +66,11 @@ else:
     split_dir = f"./split/add/{args.split}"
 
 train_data = Subset(data, np.load(f"{split_dir}/train.npy"))
-test_data = Subset(data, np.load(f"{split_dir}/val.npy"))
+val_data = Subset(data, np.load(f"{split_dir}/val.npy"))
 
 loader = DataLoader(train_data, args.batch_size, True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=5, persistent_workers=True)
-test_loader = DataLoader(test_data, args.batch_size*2, False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=5, persistent_workers=True)
+val_loader = DataLoader(val_data, args.batch_size*2, False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=5, persistent_workers=True)
 
-# Model
-class Model(nn.Module):
-    def __init__(self):
-        super().__init__()
-        backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
-        self.backbone = nn.Sequential(*list(backbone.children())[:-1])
-        self.head = nn.Sequential(
-            nn.Linear(2048, 128),
-            nn.GELU(),
-            nn.Linear(128, 1))
-    
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = self.backbone(x)
-        x.squeeze_(-1, -2)
-        x = self.head(x)
-        x.squeeze_(-1)
-        return x
 model = Model()
 model.to(device)
 if args.compile:
@@ -137,7 +120,7 @@ for epoch in range(args.n_epoch):
     preds = []
     labels = []
     with torch.inference_mode():
-        for i, (image_batch, label_batch) in enumerate(context(test_loader)):
+        for i, (image_batch, label_batch) in enumerate(context(val_loader)):
             if args.add:
                 label_batch = label_batch[0]
             pred_batch = model(image_batch.to(device))
@@ -169,6 +152,7 @@ for epoch in range(args.n_epoch):
     if best_score is None or best_score < score:
         best_score = score
         stop_epoch = 0
+        torch.save(model.state_dict(), f"{result_dir}/models/{epoch}.pth")
     else:
         stop_epoch += 1
         if stop_epoch >= 5:

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torchvision
+from torchvision.models import resnet50, ResNet50_Weights
 
 class BarlowTwins(nn.Module):
     def __init__(self, from_resnet=False):
@@ -51,3 +52,20 @@ class BarlowTwinsCriterion(nn.Module):
         loss = c_diff.sum()
 
         return loss
+
+class ResNetModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
+        self.backbone = nn.Sequential(*list(backbone.children())[:-1])
+        self.head = nn.Sequential(
+            nn.Linear(2048, 128),
+            nn.GELU(),
+            nn.Linear(128, 1))
+    
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.backbone(x)
+        x.squeeze_(-1, -2)
+        x = self.head(x)
+        x.squeeze_(-1)
+        return x
