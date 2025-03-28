@@ -27,6 +27,7 @@ parser.add_argument("--duplicate", default='ask')
 parser.add_argument("--add", action='store_true')
 parser.add_argument("--target", choices=['bio', 'acantholysis', 'dyskeratosis'], 
         help='Ignored when not --add')
+parser.add_argument("--early-stop", type=int, default=5)
 parser.add_argument("--reg", action='store_true')
 args = parser.parse_args()
 
@@ -156,7 +157,7 @@ for epoch in range(args.n_epoch):
         best_epoch = epoch
         torch.save(model.state_dict(), f"{result_dir}/models/{epoch}.pth")
     else:
-        if epoch - best_epoch >= 5:
+        if epoch - best_epoch >= args.early_stop:
             torch.save(model.state_dict(), f"{result_dir}/models/{epoch}.pth")
             break
 print(f"training {args.studyname} finished!")
