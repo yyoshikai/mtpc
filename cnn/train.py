@@ -1,4 +1,4 @@
-import sys, os, argparse, yaml
+import sys, os, argparse, yaml, math
 from tqdm import tqdm
 import numpy as np, pandas as pd, torch, torch.nn as nn
 from torch.optim import lr_scheduler
@@ -24,7 +24,6 @@ parser.add_argument("--num-workers", type=int, default=28)
 parser.add_argument("--tqdm", action='store_true')
 parser.add_argument("--compile", action='store_true')
 parser.add_argument("--duplicate", default='ask')
-parser.add_argument("--early-stop", type=int)
 parser.add_argument("--add", action='store_true')
 parser.add_argument("--target", choices=['bio', 'acantholysis', 'dyskeratosis'], 
         help='Ignored when not --add')
@@ -68,8 +67,9 @@ else:
 train_data = Subset(data, np.load(f"{split_dir}/train.npy"))
 val_data = Subset(data, np.load(f"{split_dir}/val.npy"))
 
-loader = DataLoader(train_data, args.batch_size, True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=5, persistent_workers=True)
-val_loader = DataLoader(val_data, args.batch_size*2, False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=5, persistent_workers=True)
+prefetch_factor = 5 if args.num_workers > 0 else None
+loader = DataLoader(train_data, args.batch_size, True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor, persistent_workers=True)
+val_loader = DataLoader(val_data, args.batch_size*2, False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor, persistent_workers=True)
 
 model = Model()
 model.to(device)
@@ -89,8 +89,8 @@ if args.reg:
     dfscore = pd.DataFrame(columns=['epoch', 'R^2', 'RMSE', 'MAE'])
 else:
     dfscore = pd.DataFrame(columns=['epoch', 'AUROC', 'AUPR'])
-best_score = None
-stop_epoch = 0
+best_score = -math.inf
+best_epoch = None
 for epoch in range(args.n_epoch):
     
     model.train()
@@ -149,13 +149,14 @@ for epoch in range(args.n_epoch):
         score = -dfscore.loc[epoch, 'RMSE']
     else:
         score = dfscore.loc[epoch, 'AUROC']
-    if best_score is None or best_score < score:
+    if best_score < score:
+        if best_epoch is not None:
+            os.remove(f"{result_dir}/models/{best_epoch}.pth")
         best_score = score
-        stop_epoch = 0
+        best_epoch = epoch
         torch.save(model.state_dict(), f"{result_dir}/models/{epoch}.pth")
     else:
-        stop_epoch += 1
-        if stop_epoch >= 5:
+        if epoch - best_epoch >= 5:
             torch.save(model.state_dict(), f"{result_dir}/models/{epoch}.pth")
             break
 print(f"training {args.studyname} finished!")
