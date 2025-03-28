@@ -69,8 +69,9 @@ train_data = Subset(data, np.load(f"{split_dir}/train.npy"))
 val_data = Subset(data, np.load(f"{split_dir}/val.npy"))
 
 prefetch_factor = 5 if args.num_workers > 0 else None
-loader = DataLoader(train_data, args.batch_size, True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor, persistent_workers=True)
-val_loader = DataLoader(val_data, args.batch_size*2, False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor, persistent_workers=True)
+persistent_workers = True if args.num_workers > 0 else False
+loader = DataLoader(train_data, args.batch_size, True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers)
+val_loader = DataLoader(val_data, args.batch_size*2, False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor, persistent_workers=persistent_workers)
 
 model = Model()
 model.to(device)
