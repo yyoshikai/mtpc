@@ -135,13 +135,15 @@ class ResNetModel(nn.Module):
         match structure:
             case 'resnet50':
                 backbone = resnet50(weights=None if from_scratch else ResNet50_Weights.IMAGENET1K_V2)
+                out_size = 2048
             case 'resnet18':
                 backbone = _resnet(BasicBlock2, [2, 2, 2, 2], weights=None if from_scratch else ResNet18_Weights.IMAGENET1K_V1, progress=True)
+                out_size = 512
             case _: 
                 raise ValueError
         self.backbone = nn.Sequential(*list(backbone.children())[:-1])
         self.head = nn.Sequential(
-            nn.Linear(2048, 128),
+            nn.Linear(out_size, 128),
             nn.GELU(),
             nn.Linear(128, 1))
     
