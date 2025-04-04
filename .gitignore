@@ -1,6 +1,6 @@
-/*/*
-!/bt/train.py
-!/cnn/train.py
-!/cnn/train_add.py
-!/src/*
+/*/*/*
+*.ipynb
+!/predict/mlp/train.py
+!/pretrain/bt/train.py
+!/src
 __pycache__/

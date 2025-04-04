@@ -1,12 +1,17 @@
 import torch
 import torch.nn as nn
 import torchvision
-from torchvision.models import resnet50, ResNet50_Weights
+from typing import Optional
+from collections.abc import Callable
+from torch import Tensor
 
-class BarlowTwins(nn.Module):
-    def __init__(self, from_resnet=False):
+from torchvision.models import resnet18, resnet50, ResNet18_Weights, ResNet50_Weights
+from torchvision.models.resnet import _resnet, conv3x3
+
+class BarlowTwins0(nn.Module):
+    def __init__(self, from_resnet=False, head_size: int=128):
         super().__init__()
-        backbone = torchvision.models.resnet18(
+        backbone = resnet18(
             weights=torchvision.models.ResNet18_Weights.IMAGENET1K_V1
             if from_resnet else None
         )
@@ -18,7 +23,78 @@ class BarlowTwins(nn.Module):
             nn.Linear(512, 512, bias=False),
             nn.BatchNorm1d(512),
             nn.ReLU(),
-            nn.Linear(512, 128)
+            nn.Linear(512, head_size)
+        )
+
+    def forward(self, x):
+        x = self.backbone(x).squeeze(-1).squeeze(-1)
+        return self.head(x)
+
+
+class BasicBlock2(nn.Module):
+    expansion: int = 1
+
+    def __init__(
+        self,
+        inplanes: int,
+        planes: int,
+        stride: int = 1,
+        downsample: Optional[nn.Module] = None,
+        groups: int = 1,
+        base_width: int = 64,
+        dilation: int = 1,
+        norm_layer: Optional[Callable[..., nn.Module]] = None,
+    ) -> None:
+        super().__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        if groups != 1 or base_width != 64:
+            raise ValueError("BasicBlock only supports groups=1 and base_width=64")
+        if dilation > 1:
+            raise NotImplementedError("Dilation > 1 not supported in BasicBlock")
+        # Both self.conv1 and self.downsample layers downsample the input when stride != 1
+        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.bn1 = norm_layer(planes)
+        self.relu1 = nn.ReLU(inplace=True)
+        self.conv2 = conv3x3(planes, planes)
+        self.bn2 = norm_layer(planes)
+        self.downsample = downsample
+        self.relu2 = nn.ReLU(inplace=True)
+        self.stride = stride
+
+    def forward(self, x: Tensor) -> Tensor:
+        identity = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu1(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        out += identity
+        out = self.relu2(out)
+
+        return out
+
+class BarlowTwins(nn.Module):
+    def __init__(self, from_resnet=False, head_size: int=128):
+        super().__init__()
+        weights = torchvision.models.ResNet18_Weights.IMAGENET1K_V1 if from_resnet else None
+        backbone = _resnet(BasicBlock2, [2, 2, 2, 2], weights, progress=True)
+        
+        self.backbone = nn.Sequential(*list(backbone.children())[:-1])
+        self.head = nn.Sequential(
+            nn.Linear(512, 512, bias=False),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Linear(512, 512, bias=False),
+            nn.BatchNorm1d(512),
+            nn.ReLU(),
+            nn.Linear(512, head_size)
         )
 
     def forward(self, x):
@@ -54,9 +130,15 @@ class BarlowTwinsCriterion(nn.Module):
         return loss
 
 class ResNetModel(nn.Module):
-    def __init__(self):
+    def __init__(self, structure='resnet50', from_scratch=False):
         super().__init__()
-        backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
+        match structure:
+            case 'resnet50':
+                backbone = resnet50(weights=None if from_scratch else ResNet50_Weights.IMAGENET1K_V2)
+            case 'resnet18':
+                backbone = _resnet(BasicBlock2, [2, 2, 2, 2], weights=None if from_scratch else ResNet18_Weights.IMAGENET1K_V1, progress=True)
+            case _: 
+                raise ValueError
         self.backbone = nn.Sequential(*list(backbone.children())[:-1])
         self.head = nn.Sequential(
             nn.Linear(2048, 128),

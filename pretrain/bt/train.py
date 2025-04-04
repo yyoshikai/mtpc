@@ -13,6 +13,7 @@ from tools.logger import get_logger, add_file_handler, add_stream_handler
 from src.model import BarlowTwins, BarlowTwinsCriterion
 from src.data import untuple_dataset, ShuffleAugmentDataset, AugmentDataset, CacheDataset
 from src.data.mtpc import MTPCRegionDataset, MTPCUHRegionDataset, MTPCVDRegionDataset
+from src.utils.time import WriteHolder
 
 DDIR = f"{WORKDIR}/cheminfodata/mtpc"
 
@@ -26,6 +27,9 @@ parser.add_argument('--weight')
 parser.add_argument('--lambda-param', type=float, default=5e-3)
 parser.add_argument('--shuffle-aug', choices=['region', 'wsi'], default=None)
 parser.add_argument('--add-data', action='store_true')
+
+## model
+parser.add_argument('--head-size', type=int, default=128)
 
 ## training
 parser.add_argument('--bsz', type=int, default=64)
@@ -104,7 +108,7 @@ loader = DataLoader(data, batch_size=args.bsz, shuffle=True,
     num_workers=args.num_workers, pin_memory=True, persistent_workers=True)
 
 # Model
-model = BarlowTwins(from_resnet=args.from_resnet)
+model = BarlowTwins(from_resnet=args.from_resnet, head_size=args.head_size)
 criterion = BarlowTwinsCriterion(args.lambda_param)
 model.to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
