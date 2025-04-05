@@ -3,4 +3,5 @@
 !/predict/mlp/train.py
 !/pretrain/bt/train.py
 !/src
+!/src/data
 __pycache__/
