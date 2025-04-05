@@ -2,5 +2,5 @@
 *.ipynb
 !/predict/mlp/train.py
 !/pretrain/bt/train.py
-!/src/*
+!/src/*/*
 __pycache__/
