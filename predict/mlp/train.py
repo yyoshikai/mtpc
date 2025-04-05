@@ -200,7 +200,6 @@ for epoch in range(args.n_epoch):
             torch.save(model.state_dict(), f"{result_dir}/models/{epoch}.pth")
         else:
             if epoch - best_epoch >= args.early_stop:
-                torch.save(model.state_dict(), f"{result_dir}/models/{epoch}.pth")
                 break
 # Evaluate for test data
 logger.info(f"Evaluating for test_data with best model ({best_epoch})...")
