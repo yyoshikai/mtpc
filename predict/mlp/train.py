@@ -101,7 +101,7 @@ data = StackDataset(input_data, target_data)
 
 prefetch_factor = 5 if args.num_workers > 0 else None
 if args.use_val:
-    trian_data = Subset(data, np.where(train_mask|val_mask)[0])
+    train_data = Subset(data, np.where(train_mask|val_mask)[0])
     test_data = Subset(data, np.where(test_mask)[0])
 else:
     train_data = Subset(data, np.where(train_mask)[0])
