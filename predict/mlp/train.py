@@ -20,11 +20,18 @@ parser.add_argument("--early-stop", type=int, default=10)
 parser.add_argument("--use-val", action='store_true', help="If True, use validation set for training. Final model is evaluated as best model.")
 parser.add_argument("--from-scratch", action='store_true')
 parser.add_argument("--structure", default='resnet50')
+parser.add_argument('--init-weight', help='set scratch to train from initial' \
+        'model, or set path from .../pretrain, defaults to imagenet')
 args = parser.parse_args()
 ## set default args
 from_feature = args.feature_name is not None
 if args.num_workers is None:
     args.num_workers = 1 if from_feature else 28
+if from_feature:
+    assert args.init_weight is None
+else:
+    if args.init_weight is None:
+        args.init_weight = 'imagenet'
 
 # First check whether or not to do training.
 ## Whether result exists
@@ -125,7 +132,15 @@ if from_feature:
             return super().forward(input).squeeze(-1)
     model = MLP()
 else:
-    model = Model(args.structure, args.from_scratch)
+    model = Model(args.structure, from_scratch=args.init_weight == 'scratch')
+    if args.init_weight not in ['imagenet', 'scratch']:
+        whole_state: dict[str, torch.Tensor]
+        whole_state = torch.load(f"{WORKDIR}/mtpc/pretrain/{args.init_weight}", weights_only=True)
+        state = {}
+        for key, value in whole_state.items():
+            if key.startswith('backbone.'):
+                state[key[9:]] = value
+        logger.info(model.backbone.load_state_dict(state))
 
 model.to(device)
 if args.compile:
