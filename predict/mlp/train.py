@@ -64,7 +64,7 @@ if train_mask is None:
 
 
 # import
-import yaml, math
+import yaml, math, shutil
 from tqdm import tqdm
 import pandas as pd, torch, torch.nn as nn
 from torch.optim import lr_scheduler
@@ -120,7 +120,6 @@ loader = DataLoader(train_data, args.batch_size, True, num_workers=args.num_work
 # Directory
 result_dir = make_dir(result_dir, args.duplicate)
 os.makedirs(f"{result_dir}/models", exist_ok=True)
-add_file_handler(logger, f"{result_dir}/train.log")
 with open(f"{result_dir}/args.yaml", 'w') as f:
     yaml.dump(vars(args), f)
 
@@ -244,5 +243,5 @@ else:
         'AUPR': average_precision_score(targets, preds),
     }})
 df.to_csv(f"{result_dir}/score.csv")
-
+shutil.rmtree(f"{result_dir}/models", ignore_errors=True)
 logger.info(f"training {args.studyname}/{args.target}/{args.split} finished!")

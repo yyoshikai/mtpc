@@ -22,11 +22,11 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--studyname", default='default')
 parser.add_argument("--duplicate", default='ask')
 
-parser.add_argument('--from-resnet', action='store_true')
 parser.add_argument('--weight')
 parser.add_argument('--lambda-param', type=float, default=5e-3)
 parser.add_argument('--shuffle-aug', choices=['region', 'wsi'], default=None)
-parser.add_argument('--add-data', action='store_true')
+parser.add_argument('--data', nargs='+', default=['main'])
+# parser.add_argument('--add-data', action='store_true')
 
 ## model
 parser.add_argument('--head-size', type=int, default=128)
@@ -45,9 +45,14 @@ parser.add_argument('--resize-ratio-max', type=float, default=4/3)
 parser.add_argument('--num-workers', type=int, default=4)
 parser.add_argument('--tqdm', action='store_true')
 args = parser.parse_args()
+if args.weight == 'resnet':
+    from_resnet = True
+    args.weight = None
+else:
+    from_resnet = False
 
 # Environment
-rdir = make_result_dir(dirname=f"./results/{timestamp()}_{args.studyname}", duplicate=args.duplicate)
+rdir = make_result_dir(dirname=f"./results/{args.studyname}", duplicate=args.duplicate)
 os.makedirs(f"{rdir}/models")
 
 with open(f"{rdir}/args.yaml", 'w') as f:
@@ -69,17 +74,18 @@ color_plob, blur_plob, solar_plob = 0.8, 0.4, 0.0
 
 data0 = []
 ## main data
-df_wsi = pd.read_csv(f"{DDIR}/processed/annotation_check0.csv", index_col=0, 
-    dtype=str, keep_default_na=False)
-for wsi_name in df_wsi.index:
-    region_datas0 = []
-    for region_idx in df_wsi.columns:
-        if df_wsi.loc[wsi_name, region_idx] == 'NaN':
-            continue
-        region_datas0.append(MTPCRegionDataset(wsi_name, region_idx, 256))
-    data0.append(region_datas0)
+if 'main' in args.data:
+    df_wsi = pd.read_csv(f"{DDIR}/processed/annotation_check0.csv", index_col=0, 
+        dtype=str, keep_default_na=False)
+    for wsi_name in df_wsi.index:
+        region_datas0 = []
+        for region_idx in df_wsi.columns:
+            if df_wsi.loc[wsi_name, region_idx] == 'NaN':
+                continue
+            region_datas0.append(MTPCRegionDataset(wsi_name, region_idx, 256))
+        data0.append(region_datas0)
 ## additional data
-if args.add_data:
+if 'add' in args.data:
     for wsi_idx in range(1, 106):
         data0.append([MTPCUHRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)])
     for wsi_idx in range(1, 55):
@@ -105,10 +111,10 @@ data = StackDataset(
         f"{rdir}/augment_example/{i}", 1) for i, data in enumerate([data0, data1])]
 )
 loader = DataLoader(data, batch_size=args.bsz, shuffle=True, 
-    num_workers=args.num_workers, pin_memory=True, persistent_workers=True)
+    num_workers=args.num_workers, pin_memory=True)
 
 # Model
-model = BarlowTwins(from_resnet=args.from_resnet, head_size=args.head_size)
+model = BarlowTwins(from_resnet=from_resnet, head_size=args.head_size)
 criterion = BarlowTwinsCriterion(args.lambda_param)
 model.to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
