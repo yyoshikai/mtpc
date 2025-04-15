@@ -7,6 +7,7 @@ from torch import Tensor
 
 from torchvision.models import resnet18, resnet50, ResNet18_Weights, ResNet50_Weights
 from torchvision.models.resnet import _resnet, conv3x3
+from torch.nn.modules.module import _IncompatibleKeys
 
 class BarlowTwins0(nn.Module):
     def __init__(self, from_resnet=False, head_size: int=128):
@@ -129,8 +130,16 @@ class BarlowTwinsCriterion(nn.Module):
 
         return loss
 
+def fill_output_mean_std(module: nn.Module, incompatible_keys: _IncompatibleKeys):
+    if 'output_mean' in incompatible_keys.missing_keys:
+        module.register_buffer('output_mean', torch.tensor(0.0))
+        incompatible_keys.missing_keys.remove('output_mean')
+    if 'output_std' in incompatible_keys.missing_keys:
+        module.register_buffer('output_std', torch.tensor(1.0))
+        incompatible_keys.missing_keys.remove('output_std')
+
 class ResNetModel(nn.Module):
-    def __init__(self, structure='resnet50', from_scratch=False):
+    def __init__(self, structure='resnet50', from_scratch=False, output_mean: float=0.0, output_std: float=1.0):
         super().__init__()
         match structure:
             case 'resnet50':
@@ -146,10 +155,15 @@ class ResNetModel(nn.Module):
             nn.Linear(out_size, 128),
             nn.GELU(),
             nn.Linear(128, 1))
-    
+        
+        self.register_buffer('output_mean', torch.tensor(output_mean))
+        self.register_buffer('output_std', torch.tensor(output_std))
+        self.register_load_state_dict_post_hook(fill_output_mean_std)
+
+
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.backbone(x)
         x.squeeze_(-1, -2)
         x = self.head(x)
         x.squeeze_(-1)
-        return x
+        return x*self.output_std+self.output_mean
