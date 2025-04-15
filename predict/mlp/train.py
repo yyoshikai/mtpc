@@ -22,6 +22,7 @@ parser.add_argument("--from-scratch", action='store_true')
 parser.add_argument("--structure", default='resnet50')
 parser.add_argument('--init-weight', help='set scratch to train from initial' \
         'model, or set path from .../pretrain, defaults to imagenet')
+parser.add_argument('--save-all', action='store_true')
 args = parser.parse_args()
 ## set default args
 from_feature = args.feature_name is not None
@@ -34,9 +35,9 @@ else:
         args.init_weight = 'imagenet'
 
 # First check whether or not to do training.
+
 ## Whether result exists
 import sys, os
-
 result_dir = f"./results/{args.studyname}/{args.target}/{args.split}"
 if os.path.exists(f"{result_dir}/score.csv"):
     print(f"{result_dir}/score.csv already exists.")
@@ -62,7 +63,6 @@ if train_mask is None:
     print(f"folds cannot split y correctly.")
     sys.exit()
 
-
 # import
 import yaml, math, shutil
 from tqdm import tqdm
@@ -74,7 +74,7 @@ from src.utils.logger import add_stream_handler, add_file_handler, get_logger
 from src.utils.path import make_dir
 from src.data import untuple_dataset, MTPCDataset, BaseAugmentDataset
 from src.data.mtpc import MTPCUHRegionDataset, MTPCVDRegionDataset
-from src.model import ResNetModel as Model
+from src.model import ResNetModel as Model, fill_output_mean_std
 from src.data import TensorDataset
 
 # Environment
@@ -103,6 +103,12 @@ else:
         data = MTPCDataset(256)
         input_data, _ = untuple_dataset(data, 2)
         input_data = BaseAugmentDataset(input_data)
+if args.reg:
+    output_mean = np.mean(y[train_mask])
+    output_std = np.std(y[train_mask])
+else:
+    output_mean = 0.0
+    output_std = 1.0
 target_data = TensorDataset(y)
 data = StackDataset(input_data, target_data)
 
@@ -125,13 +131,16 @@ with open(f"{result_dir}/args.yaml", 'w') as f:
 
 if from_feature:
     class MLP(nn.Sequential):
-        def __init__(self):
+        def __init__(self, output_mean: float=0.0, output_std: float=1.0):
             super().__init__(nn.Linear(512, 128), nn.GELU(), nn.Linear(128, 1))
+            self.register_buffer('output_mean', torch.tensor(output_mean))
+            self.register_buffer('output_std', torch.tensor(output_std))
+            self.register_load_state_dict_post_hook(fill_output_mean_std)
         def forward(self, input):
-            return super().forward(input).squeeze(-1)
-    model = MLP()
+            return super().forward(input).squeeze(-1)*self.output_std+self.output_mean
+    model = MLP(output_mean, output_std)
 else:
-    model = Model(args.structure, from_scratch=args.init_weight == 'scratch')
+    model = Model(args.structure, args.init_weight == 'scratch', output_mean, output_std)
     if args.init_weight not in ['imagenet', 'scratch']:
         whole_state: dict[str, torch.Tensor]
         whole_state = torch.load(f"{WORKDIR}/mtpc/pretrain/{args.init_weight}", weights_only=True)
@@ -169,7 +178,7 @@ for epoch in range(args.n_epoch):
     for input_batch, target_batch in context(loader):
         optimizer.zero_grad()
         pred_batch = model(input_batch.to(device))
-        loss = criterion(pred_batch, target_batch.to(torch.float).to(device))
+        loss = criterion(pred_batch, target_batch.to(torch.float).to(device)) / output_std
         loss.backward()
         losses.append(loss.item())
         optimizer.step()
@@ -177,8 +186,9 @@ for epoch in range(args.n_epoch):
     epoch += 1   
 
     ## Save steps
-    df = pd.DataFrame({'loss': losses})
-    df.to_csv(f"{result_dir}/steps.csv", index_label='step')
+    if args.save_all:
+        df = pd.DataFrame({'loss': losses})
+        df.to_csv(f"{result_dir}/steps.csv", index_label='step')
 
     ## Evaluate
     if args.use_val:
@@ -243,5 +253,7 @@ else:
         'AUPR': average_precision_score(targets, preds),
     }})
 df.to_csv(f"{result_dir}/score.csv")
-shutil.rmtree(f"{result_dir}/models", ignore_errors=True)
+if not args.save_all:
+    shutil.rmtree(f"{result_dir}/models", ignore_errors=True)
 logger.info(f"training {args.studyname}/{args.target}/{args.split} finished!")
+
