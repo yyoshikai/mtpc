@@ -56,6 +56,8 @@ class BasicBlock2(nn.Module):
         return out
 
 class Backbone(nn.Module):
+    structure2params: dict[str, dict]
+    structure2weights: dict[str, dict[str, WeightsEnum]]
 
     @classmethod
     def structures(cls):
@@ -80,7 +82,7 @@ class ResNet(resnet.ResNet, Backbone):
         'resnet152': dict(block=resnet.Bottleneck, layers=[3, 8, 36, 3]),
     }
 
-    structure_name2weight = {
+    structure2weights = {
         'resnet18': {'imagenet': resnet.ResNet18_Weights.IMAGENET1K_V1}, 
         'resnet34': {'imagenet': resnet.ResNet34_Weights.IMAGENET1K_V1}, 
         'resnet50': {'imagenet': resnet.ResNet50_Weights.IMAGENET1K_V2}, 
@@ -92,7 +94,7 @@ class ResNet(resnet.ResNet, Backbone):
         num_classes = 1000
         self.structure = structure
         if weight is not None:
-            weight: WeightsEnum = self.structure_name2weight[structure][weight]
+            weight = self.structure2weights[structure][weight]
             num_classes = len(weight.meta['categories'])
 
         super().__init__(**self.structure2params[structure], num_classes=num_classes)
@@ -133,7 +135,7 @@ class ViT(vit.VisionTransformer, Backbone):
         'vit_l_16': dict(patch_size=16, num_layers=24, num_heads=16, hidden_dim=1024, mlp_dim=4096,),
         'vit_l_32': dict(patch_size=32, num_layers=24, num_heads=16, hidden_dim=1024, mlp_dim=4096,),
     }
-    structure_name2weight = {
+    structure2weights = {
         'vit_b_16': {'imagenet': vit.ViT_B_16_Weights.IMAGENET1K_V1},
         'vit_b_32': {'imagenet': vit.ViT_B_32_Weights.IMAGENET1K_V1},
         'vit_l_16': {'imagenet': vit.ViT_L_16_Weights.IMAGENET1K_V1},
@@ -144,7 +146,7 @@ class ViT(vit.VisionTransformer, Backbone):
         num_classes = 1000
         image_size = 224
         if weight is not None:
-            weight: WeightsEnum = self.structure_name2weight[structure][weight]
+            weight: WeightsEnum = self.structure2weights[structure][weight]
             num_classes = len(weight.meta['categories'])
             image_size = weight.meta['min_size'][0]
 
@@ -225,7 +227,7 @@ class ConvNeXt(convnext.ConvNeXt, Backbone):
         ), 
     }
 
-    structure_name2weight = {
+    structure2weights = {
         'convnext_tiny': {'imagenet': convnext.ConvNeXt_Tiny_Weights.IMAGENET1K_V1,},
         'convnext_small': {'imagenet': convnext.ConvNeXt_Small_Weights.IMAGENET1K_V1,},
         'convnext_base': {'imagenet': convnext.ConvNeXt_Base_Weights.IMAGENET1K_V1,},
@@ -235,7 +237,7 @@ class ConvNeXt(convnext.ConvNeXt, Backbone):
     def __init__(self, structure: str, weight):
         num_classes = 1000
         if weight is not None:
-            weight = self.structure_name2weight[structure][weight]
+            weight = self.structure2weights[structure][weight]
             num_classes = len(weight.meta['categories'])
         super().__init__(**self.structure2params[structure], num_classes=num_classes)
         if weight is not None:
@@ -260,8 +262,11 @@ class ConvNeXt(convnext.ConvNeXt, Backbone):
 
 backbone_clss: list[type] = [ResNet, ViT, ConvNeXt]
 structures = []
+structure2weights = {}
 for cls in backbone_clss:
     structures += cls.structures()
+    for structure, weights in cls.structure2weights.items():
+        structure2weights[structure] = list(weights.keys())
 
 def get_backbone(structure: str, weight = None) -> Backbone:
     for cls in backbone_clss:

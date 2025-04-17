@@ -1,4 +1,8 @@
+import sys, os
 from argparse import ArgumentParser
+WORKDIR = os.environ.get('WORKDIR', '/workspace')
+sys.path += [f'{WORKDIR}/mtpc', WORKDIR]
+from src.model.backbone import structures
 
 # Argument
 parser = ArgumentParser()
@@ -17,34 +21,28 @@ parser.add_argument("--tqdm", action='store_true')
 parser.add_argument("--compile", action='store_true')
 parser.add_argument("--duplicate", default='ask')
 parser.add_argument("--early-stop", type=int, default=10)
-parser.add_argument("--use-val", action='store_true', help="If True, use validation set for training. Final model is evaluated as best model.")
+parser.add_argument("--use-val", action='store_true', help="If True, use validation set for training. The model is evaluated by the final model.")
 parser.add_argument("--from-scratch", action='store_true')
-parser.add_argument("--structure", default='resnet50')
-parser.add_argument('--init-weight', help='set scratch to train from initial' \
-        'model, or set path from .../pretrain, defaults to imagenet')
+parser.add_argument("--structure", choices=structures)
+parser.add_argument('--weight')
 parser.add_argument('--save-all', action='store_true')
 args = parser.parse_args()
+
 ## set default args
 from_feature = args.feature_name is not None
+if not from_feature:
+    assert args.structure is not None
 if args.num_workers is None:
     args.num_workers = 1 if from_feature else 28
-if from_feature:
-    assert args.init_weight is None
-else:
-    if args.init_weight is None:
-        args.init_weight = 'imagenet'
 
 # First check whether or not to do training.
-
 ## Whether result exists
-import sys, os
 result_dir = f"./results/{args.studyname}/{args.target}/{args.split}"
 if os.path.exists(f"{result_dir}/score.csv"):
     print(f"{result_dir}/score.csv already exists.")
     sys.exit()
 
 ## fold exists?
-WORKDIR = os.environ.get('WORKDIR', '/workspace')
 fold_path = f"{WORKDIR}/mtpc/data/split/{'add' if args.add else 'main'}/{args.split}.npy"
 if not os.path.exists(fold_path):
     print(f"{fold_path=} does not exist.")
@@ -52,7 +50,6 @@ if not os.path.exists(fold_path):
 
 ## fold is valid?
 import numpy as np, pandas as pd
-sys.path += [f'{WORKDIR}/mtpc', WORKDIR]
 from src.predict import get_mask
 
 folds = np.load(fold_path)
@@ -70,18 +67,20 @@ import pandas as pd, torch, torch.nn as nn
 from torch.optim import lr_scheduler
 from torch.utils.data import StackDataset, Subset, DataLoader, ConcatDataset
 from sklearn.metrics import roc_auc_score, average_precision_score, r2_score, mean_squared_error, mean_absolute_error
-from src.utils.logger import add_stream_handler, add_file_handler, get_logger
+from src.utils.logger import add_stream_handler, get_logger
 from src.utils.path import make_dir
-from src.data import untuple_dataset, MTPCDataset, BaseAugmentDataset
-from src.data.mtpc import MTPCUHRegionDataset, MTPCVDRegionDataset
-from src.model import ResNetModel as Model, fill_output_mean_std
+from src.data import untuple_dataset 
+from src.data.mtpc import MTPCUHRegionDataset, MTPCVDRegionDataset, MTPCDataset
+from src.data.image import TransformDataset
+from src.model import PredictModel, fill_output_mean_std
+from src.model.backbone import get_backbone, structures, structure2weights
 from src.data import TensorDataset
 
 # Environment
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 logger = get_logger()
 add_stream_handler(logger)
-
+        
 # Data
 if args.add:
     if from_feature:
@@ -94,7 +93,6 @@ if args.add:
         for wsi_idx in range(1, 55):
             datas += [MTPCVDRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
         input_data = ConcatDataset(datas)
-        input_data = BaseAugmentDataset(input_data)
 else:
     if from_feature:
         X = np.load(f"{WORKDIR}/mtpc/featurize/{args.feature_name}/feat_all.npy")
@@ -102,13 +100,45 @@ else:
     else:
         data = MTPCDataset(256)
         input_data, _ = untuple_dataset(data, 2)
-        input_data = BaseAugmentDataset(input_data)
+
+
+# model
 if args.reg:
     output_mean = np.mean(y[train_mask])
     output_std = np.std(y[train_mask])
 else:
     output_mean = 0.0
     output_std = 1.0
+if from_feature:
+    assert args.structure is None
+    class MLP(nn.Sequential):
+        def __init__(self, output_mean: float=0.0, output_std: float=1.0):
+            super().__init__(nn.Linear(512, 128), nn.GELU(), nn.Linear(128, 1))
+            self.register_buffer('output_mean', torch.tensor(output_mean))
+            self.register_buffer('output_std', torch.tensor(output_std))
+            self.register_load_state_dict_post_hook(fill_output_mean_std)
+        def forward(self, input):
+            return super().forward(input).squeeze(-1)*self.output_std+self.output_mean
+    model = MLP(output_mean, output_std)
+else:
+    use_weight = args.weight in structure2weights[args.structure] and args.weight is not None
+    backbone = get_backbone(args.structure, args.weight if use_weight else None)
+    model = PredictModel(backbone, output_mean, output_std)
+    if not use_weight and args.weight is not None:
+        whole_state: dict[str, torch.Tensor]
+        whole_state = torch.load(f"{WORKDIR}/mtpc/pretrain/{args.weight}", weights_only=True)
+        state = {}
+        for key, value in whole_state.items():
+            if key.startswith('backbone.'):
+                state[key[9:]] = value
+        logger.info(model.backbone.load_state_dict(state))
+    
+    ## get transform
+    tmp_weight = backbone.structure2weights[args.structure][args.weight if use_weight else 'imagenet']
+    transforms = tmp_weight.transforms()
+    input_data = TransformDataset(input_data, transforms)
+
+
 target_data = TensorDataset(y)
 data = StackDataset(input_data, target_data)
 
@@ -128,27 +158,6 @@ result_dir = make_dir(result_dir, args.duplicate)
 os.makedirs(f"{result_dir}/models", exist_ok=True)
 with open(f"{result_dir}/args.yaml", 'w') as f:
     yaml.dump(vars(args), f)
-
-if from_feature:
-    class MLP(nn.Sequential):
-        def __init__(self, output_mean: float=0.0, output_std: float=1.0):
-            super().__init__(nn.Linear(512, 128), nn.GELU(), nn.Linear(128, 1))
-            self.register_buffer('output_mean', torch.tensor(output_mean))
-            self.register_buffer('output_std', torch.tensor(output_std))
-            self.register_load_state_dict_post_hook(fill_output_mean_std)
-        def forward(self, input):
-            return super().forward(input).squeeze(-1)*self.output_std+self.output_mean
-    model = MLP(output_mean, output_std)
-else:
-    model = Model(args.structure, args.init_weight == 'scratch', output_mean, output_std)
-    if args.init_weight not in ['imagenet', 'scratch']:
-        whole_state: dict[str, torch.Tensor]
-        whole_state = torch.load(f"{WORKDIR}/mtpc/pretrain/{args.init_weight}", weights_only=True)
-        state = {}
-        for key, value in whole_state.items():
-            if key.startswith('backbone.'):
-                state[key[9:]] = value
-        logger.info(model.backbone.load_state_dict(state))
 
 model.to(device)
 if args.compile:

@@ -70,4 +70,4 @@ class PredictModel(nn.Module):
         self.register_load_state_dict_post_hook(fill_output_mean_std)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.head(self.backbone(x))*self.output_std+self.output_mean
+        return self.head(self.backbone(x)).squeeze(-1)*self.output_std+self.output_mean

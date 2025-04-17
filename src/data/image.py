@@ -4,6 +4,7 @@ import torch
 from torch.utils.data import Dataset
 import torchvision.transforms as T
 from PIL import Image, ImageOps
+from .data import WrapDataset
 
 
 class RandomSolarization(object):
@@ -78,3 +79,12 @@ class BaseAugmentDataset(Dataset[torch.Tensor]):
 
     def __len__(self):
         return len(self.dataset)
+
+class TransformDataset(WrapDataset[torch.Tensor]):
+    def __init__(self, dataset: Dataset[Image.Image], transforms):
+        super().__init__(dataset)
+        self.transforms = transforms
+
+    def __getitem__(self, idx: int):
+        return self.transforms(self.dataset[idx])
+
