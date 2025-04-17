@@ -124,9 +124,7 @@ class ResNet(resnet.ResNet, Backbone):
 
     @property    
     def output_size(self):
-        match self.structure:
-            case 'resnet50': return 2048
-            case 'resnet18': return 512
+        return self.fc.weight.shape[1]
 
 class ViT(vit.VisionTransformer, Backbone):
     structure2params = {
