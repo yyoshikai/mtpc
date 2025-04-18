@@ -229,7 +229,7 @@ class ConvNeXt(convnext.ConvNeXt, Backbone):
         'convnext_tiny': {'imagenet': convnext.ConvNeXt_Tiny_Weights.IMAGENET1K_V1,},
         'convnext_small': {'imagenet': convnext.ConvNeXt_Small_Weights.IMAGENET1K_V1,},
         'convnext_base': {'imagenet': convnext.ConvNeXt_Base_Weights.IMAGENET1K_V1,},
-        'convnext_large': {'imagenet': convnext.ConvNeXt_Base_Weights.IMAGENET1K_V1,},
+        'convnext_large': {'imagenet': convnext.ConvNeXt_Large_Weights.IMAGENET1K_V1,},
     }
 
     def __init__(self, structure: str, weight):
