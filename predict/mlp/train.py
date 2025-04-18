@@ -134,8 +134,7 @@ else:
         logger.info(model.backbone.load_state_dict(state))
     
     ## get transform
-    tmp_weight = backbone.structure2weights[args.structure][args.weight if use_weight else 'imagenet']
-    transforms = tmp_weight.transforms()
+    transforms = backbone.get_transforms()
     input_data = TransformDataset(input_data, transforms)
 
 

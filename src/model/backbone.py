@@ -56,6 +56,8 @@ class BasicBlock2(nn.Module):
         return out
 
 class Backbone(nn.Module):
+    structure: str
+    weight: str
     structure2params: dict[str, dict]
     structure2weights: dict[str, dict[str, WeightsEnum]]
 
@@ -70,8 +72,11 @@ class Backbone(nn.Module):
     def get_pos_feature(self, x: Tensor) -> Tensor:
         raise NotImplementedError
     
-    def predict(self, x: Tensor) -> Tensor:
-        raise NotImplementedError
+    def get_transforms(self) -> nn.Module:
+        weight = self.structure2weights[self.structure] \
+            [self.weight if self.weight is not None else 'imagenet']
+        return weight.transforms()
+    
 
 class ResNet(resnet.ResNet, Backbone):
     structure2params = {
@@ -93,6 +98,7 @@ class ResNet(resnet.ResNet, Backbone):
     def __init__(self, structure: str, weight: str|None):
         num_classes = 1000
         self.structure = structure
+        self.weight = weight
         if weight is not None:
             weight = self.structure2weights[structure][weight]
             num_classes = len(weight.meta['categories'])
@@ -111,13 +117,10 @@ class ResNet(resnet.ResNet, Backbone):
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
-        return x
+        return x, torch.flatten(self.avgpool(x), 1)
 
     def forward(self, x: Tensor):
-        x = self.get_pos_feature(x)
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        return x
+        return self.get_pos_feature(x)[1]
 
     def predict(self, x: Tensor):
         return self.fc(self(x))
@@ -143,6 +146,8 @@ class ViT(vit.VisionTransformer, Backbone):
     def __init__(self, structure: str, weight: str|None):
         num_classes = 1000
         image_size = 224
+        self.structure = structure
+        self.weight = weight
         if weight is not None:
             weight: WeightsEnum = self.structure2weights[structure][weight]
             num_classes = len(weight.meta['categories'])
@@ -150,6 +155,7 @@ class ViT(vit.VisionTransformer, Backbone):
 
         super().__init__(**self.structure2params[structure], 
                 num_classes=num_classes, image_size=image_size)
+        Backbone.__init__(self, structure, weight)
         if weight is not None:
             self.load_state_dict(weight.get_state_dict(progress=True, check_hash=True))
 
@@ -171,7 +177,7 @@ class ViT(vit.VisionTransformer, Backbone):
     
     def forward(self, x: Tensor):
         x = self._base_forward(x) # [B, H*W+1, C]
-        return x[:, 0] # get class token
+        return x[:, 0]
 
     def get_pos_feature(self, x: Tensor) -> Tensor:
         # Reshape and permute the input tensor
@@ -180,9 +186,10 @@ class ViT(vit.VisionTransformer, Backbone):
         n_w = w // self.patch_size
 
         x = self._base_forward(x)
+        feature = x[:,0]
         x = x[:, 1:].reshape(n, n_h, n_w, self.output_size).permute(0, 3, 1, 2)
 
-        return x
+        return x, feature
 
     def predict(self, x: Tensor):
         return super().forward(x)
@@ -234,10 +241,13 @@ class ConvNeXt(convnext.ConvNeXt, Backbone):
 
     def __init__(self, structure: str, weight):
         num_classes = 1000
+        self.structure = structure
+        self.weight = weight
         if weight is not None:
             weight = self.structure2weights[structure][weight]
             num_classes = len(weight.meta['categories'])
         super().__init__(**self.structure2params[structure], num_classes=num_classes)
+        Backbone.__init__(self, structure, weight)
         if weight is not None:
             self.load_state_dict(weight.get_state_dict(progress=True, check_hash=True))
         self._output_size = self.classifier[0].normalized_shape[0]
@@ -245,11 +255,12 @@ class ConvNeXt(convnext.ConvNeXt, Backbone):
 
 
     def forward(self, x: Tensor) -> Tensor:
-        B = x.shape[0]
-        return self.avgpool(self.features(x)).reshape(B, -1)
+        return self.get_pos_feature(x)[1]
 
     def get_pos_feature(self, x: Tensor):
-        return self.features(x)
+        B = x.shape[0]
+        x = self.features(x)
+        return x, self.avgpool(x).reshape(B, -1)
 
     def predict(self, x: Tensor):
         return super().forward(x)

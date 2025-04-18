@@ -10,10 +10,10 @@ WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [WORKDIR, f"{WORKDIR}/mtpc"]
 from tools.path import make_result_dir, timestamp
 from tools.logger import get_logger, add_file_handler, add_stream_handler
-from src.model import BarlowTwins, BarlowTwinsCriterion
+from src.model import BarlowTwins, VICReg
+from src.model.backbone import structures, get_backbone, structure2weights
 from src.data import untuple_dataset, ShuffleAugmentDataset, AugmentDataset, CacheDataset
 from src.data.mtpc import MTPCRegionDataset, MTPCUHRegionDataset, MTPCVDRegionDataset
-from src.utils.time import WriteHolder
 
 DDIR = f"{WORKDIR}/cheminfodata/mtpc"
 
@@ -22,17 +22,27 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--studyname", default='default')
 parser.add_argument("--duplicate", default='ask')
 
-parser.add_argument('--weight')
 parser.add_argument('--lambda-param', type=float, default=5e-3)
 parser.add_argument('--shuffle-aug', choices=['region', 'wsi'], default=None)
 parser.add_argument('--data', nargs='+', default=['main'])
 # parser.add_argument('--add-data', action='store_true')
 
 ## model
+parser.add_argument('--scheme', required=True)
+parser.add_argument('--structure', choices=structures, default='resnet18')
+parser.add_argument('--weight')
+### Barlow Twins
 parser.add_argument('--head-size', type=int, default=128)
+### VICReg
+# TODO: base_lr=0.3, LARS optimizer
+parser.add_argument('--sim-coeff', type=float, default=25.0)
+parser.add_argument('--std-coeff', type=float, default=25.0)
+parser.add_argument('--cov-coeff', type=float, default=1.0)
+parser.add_argument('--head-sizes', type=int, nargs='+', 
+        default=[8192, 8192, 8192])
 
 ## training
-parser.add_argument('--bsz', type=int, default=64)
+parser.add_argument('--bsz', type=int)
 parser.add_argument('--lr', type=int, default=0.01)
 parser.add_argument('--nepoch', type=int, default=50)
 
@@ -50,6 +60,12 @@ if args.weight == 'resnet':
     args.weight = None
 else:
     from_resnet = False
+if args.scheme == 'bt':
+    args.bsz = args.bsz or 64
+elif args.scheme == 'vicreg':
+    args.bsz = args.bsz or 512 # from github
+
+
 
 # Environment
 rdir = make_result_dir(dirname=f"./results/{args.studyname}", duplicate=args.duplicate)
@@ -114,14 +130,22 @@ loader = DataLoader(data, batch_size=args.bsz, shuffle=True,
     num_workers=args.num_workers, pin_memory=True)
 
 # Model
-model = BarlowTwins(from_resnet=from_resnet, head_size=args.head_size)
-criterion = BarlowTwinsCriterion(args.lambda_param)
+weight = args.weight if args.weight in structure2weights[args.structure] else None
+backbone = get_backbone(args.structure, weight)
+match args.scheme:
+    case 'bt':
+        model = BarlowTwins(from_resnet=from_resnet, head_size=args.head_size)
+    case 'vicreg':
+        model = VICReg(backbone, args.head_sizes, args.sim_coeff, 
+                args.std_coeff, args.cov_coeff)
+    case _:
+        raise ValueError
 model.to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 scheduler = CosineAnnealingLR(optimizer, T_max=args.nepoch, eta_min=0)
 
 ## Load weight
-if args.weight is not None:
+if args.weight is not None and weight is None:
     state = torch.load(args.weight, weights_only=True)
     new_state = {}
     for k, v in state.items():
@@ -140,9 +164,7 @@ for iepoch in range(args.nepoch):
     with tqdm(loader, dynamic_ncols=True) if args.tqdm else nullcontext() as pbar:
         for x_a, x_b in loader:
             optimizer.zero_grad()
-            z_a = model(x_a.to(device))
-            z_b = model(x_b.to(device))
-            loss = criterion(z_a, z_b)
+            loss = model(x_a.to(device), x_b.to(device))
             losses.append(loss.item())
             loss.backward()
             optimizer.step()
