@@ -5,7 +5,8 @@ from tqdm import tqdm
 
 import torch
 from torch.utils.data import DataLoader, ConcatDataset, StackDataset
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim import lr_scheduler as lrs
+from pl_bolts.optimizers import LARS
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [WORKDIR, f"{WORKDIR}/mtpc"]
 from tools.path import make_result_dir, timestamp
@@ -43,8 +44,15 @@ parser.add_argument('--head-sizes', type=int, nargs='+',
 
 ## training
 parser.add_argument('--bsz', type=int)
-parser.add_argument('--lr', type=int, default=0.01)
 parser.add_argument('--nepoch', type=int, default=50)
+
+## optimizer
+parser.add_argument('--lr', type=float, default=0.01)
+parser.add_argument('--optimizer', default='adam')
+parser.add_argument('--weight-decay', type=float)
+parser.add_argument('--momentum', type=float, default=0.9) # lars
+parser.add_argument('--scheduler', choices=['constant', 'cosine_annealing'], 
+        default='cosine_annealing')
 
 ## augmentation
 parser.add_argument('--resize-scale-min', type=float, default=0.08)
@@ -60,12 +68,19 @@ if args.weight == 'resnet':
     args.weight = None
 else:
     from_resnet = False
+
 if args.scheme == 'bt':
     args.bsz = args.bsz or 64
 elif args.scheme == 'vicreg':
     args.bsz = args.bsz or 512 # from github
 
-
+if args.weight_decay is None:
+    if args.optimizer == 'adam':
+        args.weight_decay = 0
+    elif args.optimizer == 'lars':
+        args.weight_decay = 1e-6 # default in VICReg. 0だとLARSの効果がなくなる。
+    else:
+        raise ValueError
 
 # Environment
 rdir = make_result_dir(dirname=f"./results/{args.studyname}", duplicate=args.duplicate)
@@ -141,8 +156,18 @@ match args.scheme:
     case _:
         raise ValueError
 model.to(device)
-optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-scheduler = CosineAnnealingLR(optimizer, T_max=args.nepoch, eta_min=0)
+match args.optimizer:
+    case 'adam':
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    case 'lars':
+        optimizer = LARS(model.parameters(), lr=args.lr, momentum=args.momentum, 
+                weight_decay=args.weight_decay)
+    case _: raise ValueError
+match args.scheduler:
+    case 'constant':
+        scheduler = lrs.ConstantLR(optimizer, factor=1.0)
+    case 'cosine_annealing':
+        scheduler = lrs.CosineAnnealingLR(optimizer, T_max=args.nepoch, eta_min=0)
 
 ## Load weight
 if args.weight is not None and weight is None:
