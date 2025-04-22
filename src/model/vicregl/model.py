@@ -1,21 +1,12 @@
+from collections.abc import Callable
+import numpy as np
+from PIL.Image import Image
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .backbone import Backbone
-
-
-def mlp(sizes: int, norm: str):
-    layers = []
-    for i in range(len(sizes)-2):
-        layers.append(nn.Linear(sizes[i], sizes[i+1]))
-        if norm == 'batch_norm': 
-            layers.append(nn.BatchNorm1d(sizes[i+1]))
-        elif norm == 'layer_norm':
-            layers.append(nn.LayerNorm(sizes[i+1]))
-        layers.append(nn.ReLU(True))
-    layers.append(nn.Linear(sizes[-2], sizes[-1], bias=False))
-    return nn.Sequential(*layers)
-
+from torch import Tensor
+from ..backbone import Backbone
+from .transforms import VICRegLTransform
 
 class VICRegL(nn.Module):
     """
@@ -24,10 +15,15 @@ class VICRegL(nn.Module):
     def __init__(self, backbone: Backbone, head_sizes: list[int], 
                 map_head_sizes: list[int], 
                 alpha: float, head_norm_layer: str, 
-                inv_coeff, var_coeff, cov_coeff):
-        """
-        inv_coeff
-        """
+                inv_coeff, var_coeff, cov_coeff, 
+                l2_all_matches: bool, # True
+                num_matches: list[int], # [20, 4] 
+                fast_vc_reg: bool, # False
+                
+                size_crops: list[int], num_crops: list[int],
+                min_scale_crops: list[float], max_scale_crops: list[float],
+                no_flip_grid: bool
+        ):
         super().__init__()
         self.embedding_dim = int(head_sizes[-1])
 
@@ -36,7 +32,7 @@ class VICRegL(nn.Module):
         self.alpha = alpha
 
         if self.alpha < 1.0:
-            self.maps_projector = mlp([self.backbone_size]+head_sizes, 
+            self.maps_projector = mlp([self.backbone_size]+map_head_sizes, 
                     head_norm_layer)
 
         if self.alpha > 0.0:
@@ -45,7 +41,15 @@ class VICRegL(nn.Module):
         self.inv_coeff = inv_coeff
         self.var_coeff = var_coeff
         self.cov_coeff = cov_coeff
+        self.l2_all_matches = l2_all_matches
+        self.num_matches = num_matches
+        self.fast_vc_reg = fast_vc_reg
 
+        self.size_crops = size_crops
+        self.num_crops = num_crops
+        self.min_scale_crops = min_scale_crops
+        self.max_scale_crops = max_scale_crops
+        self.no_flip_grid = no_flip_grid
         # self.classifier = nn.Linear(self.backbone_size, self.args.num_classes)
 
     def _vicreg_loss(self, x: Tensor, y: Tensor):
@@ -80,18 +84,16 @@ class VICRegL(nn.Module):
 
         return repr_loss, std_loss, cov_loss
 
-    def _local_loss(
-        self, maps_1, maps_2, location_1, location_2
-    ):
+    def _local_loss(self, maps_1, maps_2, location_1, location_2):
         inv_loss = 0.0
         var_loss = 0.0
         cov_loss = 0.0
 
         # L2 distance based bacthing
-        if self.args.l2_all_matches:
+        if self.l2_all_matches:
             num_matches_on_l2 = [None, None]
         else:
-            num_matches_on_l2 = self.args.num_matches
+            num_matches_on_l2 = self.num_matches
 
         maps_1_filtered, maps_1_nn = neirest_neighbores_on_l2(
             maps_1, maps_2, num_matches=num_matches_on_l2[0]
@@ -100,7 +102,7 @@ class VICRegL(nn.Module):
             maps_2, maps_1, num_matches=num_matches_on_l2[1]
         )
 
-        if self.args.fast_vc_reg:
+        if self.fast_vc_reg:
             inv_loss_1 = F.mse_loss(maps_1_filtered, maps_1_nn)
             inv_loss_2 = F.mse_loss(maps_2_filtered, maps_2_nn)
         else:
@@ -120,17 +122,17 @@ class VICRegL(nn.Module):
             location_2,
             maps_1,
             maps_2,
-            num_matches=self.args.num_matches[0],
+            num_matches=self.num_matches[0],
         )
         maps_2_filtered, maps_2_nn = neirest_neighbores_on_location(
             location_2,
             location_1,
             maps_2,
             maps_1,
-            num_matches=self.args.num_matches[1],
+            num_matches=self.num_matches[1],
         )
 
-        if self.args.fast_vc_reg:
+        if self.fast_vc_reg:
             inv_loss_1 = F.mse_loss(maps_1_filtered, maps_1_nn)
             inv_loss_2 = F.mse_loss(maps_2_filtered, maps_2_nn)
         else:
@@ -159,13 +161,13 @@ class VICRegL(nn.Module):
                 cov_loss = cov_loss + cov_loss_this
                 iter_ += 1
 
-        if self.args.fast_vc_reg:
-            inv_loss = self.args.inv_coeff * inv_loss / iter_
+        if self.fast_vc_reg:
+            inv_loss = self.inv_coeff * inv_loss / iter_
             var_loss = 0.0
             cov_loss = 0.0
             iter_ = 0
             for i in range(num_views):
-                x = utils.gather_center(maps_embedding[i])
+                x = maps_embedding[i] - maps_embedding[i].mean(dim=0) # gather_center
                 std_x = torch.sqrt(x.var(dim=0) + 0.0001)
                 var_loss = var_loss + torch.mean(torch.relu(1.0 - std_x))
                 x = x.permute(1, 0, 2)
@@ -176,8 +178,8 @@ class VICRegL(nn.Module):
                 cov_loss = cov_x[..., non_diag_mask].pow(2).sum(-1) / num_channels
                 cov_loss = cov_loss + cov_loss.mean()
                 iter_ = iter_ + 1
-            var_loss = self.args.var_coeff * var_loss / iter_
-            cov_loss = self.args.cov_coeff * cov_loss / iter_
+            var_loss = self.var_coeff * var_loss / iter_
+            cov_loss = self.cov_coeff * cov_loss / iter_
         else:
             inv_loss = inv_loss / iter_
             var_loss = var_loss / iter_
@@ -193,22 +195,22 @@ class VICRegL(nn.Module):
             for j in np.delete(np.arange(np.sum(num_views)), i):
                 inv_loss = inv_loss + F.mse_loss(embedding[i], embedding[j])
                 iter_ = iter_ + 1
-        inv_loss = self.args.inv_coeff * inv_loss / iter_
+        inv_loss = self.inv_coeff * inv_loss / iter_
 
         var_loss = 0.0
         cov_loss = 0.0
         iter_ = 0
         for i in range(num_views):
-            x = utils.gather_center(embedding[i])
+            x = embedding[i] - embedding[i].mean(dim=0)
             std_x = torch.sqrt(x.var(dim=0) + 0.0001)
             var_loss = var_loss + torch.mean(torch.relu(1.0 - std_x))
             cov_x = (x.T @ x) / (x.size(0) - 1)
-            cov_loss = cov_loss + utils.off_diagonal(cov_x).pow_(2).sum().div(
+            cov_loss = cov_loss + off_diagonal(cov_x).pow_(2).sum().div(
                 self.embedding_dim
             )
             iter_ = iter_ + 1
-        var_loss = self.args.var_coeff * var_loss / iter_
-        cov_loss = self.args.cov_coeff * cov_loss / iter_
+        var_loss = self.var_coeff * var_loss / iter_
+        cov_loss = self.cov_coeff * cov_loss / iter_
 
         return inv_loss, var_loss, cov_loss
 
@@ -216,26 +218,26 @@ class VICRegL(nn.Module):
         def correlation_metric(x):
             x_centered = (x - x.mean(dim=0)) / (x.std(dim=0) + 1e-05)
             return torch.mean(
-                utils.off_diagonal((x_centered.T @ x_centered) / (x.size(0) - 1))
+                off_diagonal((x_centered.T @ x_centered) / (x.size(0) - 1))
             )
 
         def std_metric(x):
             x = F.normalize(x, p=2, dim=1)
             return torch.mean(x.std(dim=0))
 
-        representation = utils.batch_all_gather(outputs["representation"][0])
+        representation = outputs["representation"][0].contiguous() # batch_all_gather
         corr = correlation_metric(representation)
         stdrepr = std_metric(representation)
 
         if self.alpha > 0.0:
-            embedding = utils.batch_all_gather(outputs["embedding"][0])
+            embedding = outputs["embedding"][0].contiguous() # batch_all_gather
             core = correlation_metric(embedding)
             stdemb = std_metric(embedding)
             return dict(stdr=stdrepr, stde=stdemb, corr=corr, core=core)
 
         return dict(stdr=stdrepr, corr=corr)
 
-    def forward_networks(self, inputs, is_val):
+    def forward_networks(self, inputs, is_val):        
         outputs = {
             "representation": [],
             "embedding": [],
@@ -243,8 +245,10 @@ class VICRegL(nn.Module):
             "logits": [],
             "logits_val": [],
         }
+
+
         for x in inputs["views"]:
-            maps, representation = self.backbone(x)
+            maps, representation = self.backbone.get_pos_feature(x)
             outputs["representation"].append(representation)
 
             if self.alpha > 0.0:
@@ -252,13 +256,16 @@ class VICRegL(nn.Module):
                 outputs["embedding"].append(embedding)
 
             if self.alpha < 1.0:
-                batch_size, num_loc, _ = maps.shape
+                # batch_size, num_loc, _ = maps.shape
+                B, C, H, W = maps.shape
+                maps = maps.view(B, C, H*W).permute(0, 2, 1)
+
                 maps_embedding = self.maps_projector(maps.flatten(start_dim=0, end_dim=1))
-                maps_embedding = maps_embedding.view(batch_size, num_loc, -1)
+                maps_embedding = maps_embedding.view(B, H*W, -1)
                 outputs["maps_embedding"].append(maps_embedding)
 
-            logits = self.classifier(representation.detach())
-            outputs["logits"].append(logits)
+            # logits = self.classifier(representation.detach())
+            # outputs["logits"].append(logits)
 
         if is_val:
             _, representation = self.backbone(inputs["val_view"])
@@ -268,7 +275,13 @@ class VICRegL(nn.Module):
         return outputs
 
     def forward(self, inputs, is_val=False, backbone_only=False):
-        # inputs: {'views': list[Tensor(B, H, W, C?)], 'locations': list[Tensor(B, G, G, 2)]], 'labels': Tensor(B)} G=grid_size
+        # inputs: {'views': list[Tensor(B, H, W, C?)], 'locations': list[Tensor(B,  G, G, 2)]], 'labels': Tensor(B)} G=grid_size
+        device = next(self.parameters()).device
+        inputs = {
+            'views': [x.to(device) for x in inputs['views']], 
+            'locations': [x.to(device) for x in inputs['locations']]
+        }
+
         if backbone_only:
             maps, _ = self.backbone(inputs)
             return maps
@@ -305,7 +318,7 @@ class VICRegL(nn.Module):
             )
 
         # Online classification
-
+        """
         labels = inputs["labels"]
         classif_loss = F.cross_entropy(outputs["logits"][0], labels)
         acc1, acc5 = utils.accuracy(outputs["logits"][0], labels, topk=(1, 5))
@@ -319,40 +332,27 @@ class VICRegL(nn.Module):
             logs.update(
                 dict(clsl_val=classif_loss_val, top1_val=acc1_val, top5_val=acc5_val,)
             )
+        """
 
-        return loss, logs
+        return loss # , logs
+    
+    def get_train_transform(self, example_dir, n_example) -> Callable[[Image], dict[str, Tensor]]:
+        return VICRegLTransform(example_dir, n_example, self.size_crops, self.num_crops, self.min_scale_crops, self.max_scale_crops, self.no_flip_grid)
 
-def fill_output_mean_std(module: nn.Module, incompatible_keys: _IncompatibleKeys):
-    if 'output_mean' in incompatible_keys.missing_keys:
-        module.register_buffer('output_mean', torch.tensor(0.0))
-        incompatible_keys.missing_keys.remove('output_mean')
-    if 'output_std' in incompatible_keys.missing_keys:
-        module.register_buffer('output_std', torch.tensor(1.0))
-        incompatible_keys.missing_keys.remove('output_std')
+def off_diagonal(x):
+    n, m = x.shape
+    assert n == m
+    return x.flatten()[:-1].view(n - 1, n + 1)[:, 1:].flatten()
 
-class PredictModel(nn.Module):
-    def __init__(self, backbone: Backbone, output_mean: float=0.0, output_std: float=1.0):
-        super().__init__()
-        self.backbone = backbone
-        self.head = nn.Sequential(
-            nn.Linear(backbone.output_size, 128),
-            nn.GELU(),
-            nn.Linear(128, 1))
-        
-        self.register_buffer('output_mean', torch.tensor(output_mean))
-        self.register_buffer('output_std', torch.tensor(output_std))
-        self.register_load_state_dict_post_hook(fill_output_mean_std)
-
-    def forward(self, x: Tensor) -> Tensor:
-        return self.head(self.backbone(x)).squeeze(-1)*self.output_std+self.output_mean
-
-def neirest_neighbores_on_l2(input_maps, candidate_maps, num_matches):
-    """
-    input_maps: (B, H * W, C)
-    candidate_maps: (B, H * W, C)
-    """
-    distances = torch.cdist(input_maps, candidate_maps)
-    return neirest_neighbores(input_maps, candidate_maps, distances, num_matches)
+def batched_index_select(input, dim, index):
+    for ii in range(1, len(input.shape)):
+        if ii != dim:
+            index = index.unsqueeze(ii)
+    expanse = list(input.shape)
+    expanse[0] = -1
+    expanse[dim] = -1
+    index = index.expand(expanse)
+    return torch.gather(input, dim, index)
 
 def neirest_neighbores(input_maps, candidate_maps, distances, num_matches):
     batch_size = input_maps.size(0)
@@ -392,13 +392,34 @@ def neirest_neighbores(input_maps, candidate_maps, distances, num_matches):
 
     return filtered_input_maps, filtered_candidate_maps
 
+def neirest_neighbores_on_l2(input_maps, candidate_maps, num_matches):
+    """
+    input_maps: (B, H * W, C)
+    candidate_maps: (B, H * W, C)
+    """
+    distances = torch.cdist(input_maps, candidate_maps)
+    return neirest_neighbores(input_maps, candidate_maps, distances, num_matches)
 
-def batched_index_select(input, dim, index):
-    for ii in range(1, len(input.shape)):
-        if ii != dim:
-            index = index.unsqueeze(ii)
-    expanse = list(input.shape)
-    expanse[0] = -1
-    expanse[dim] = -1
-    index = index.expand(expanse)
-    return torch.gather(input, dim, index)
+def neirest_neighbores_on_location(
+    input_location, candidate_location, input_maps, candidate_maps, num_matches
+):
+    """
+    input_location: (B, H * W, 2)
+    candidate_location: (B, H * W, 2)
+    input_maps: (B, H * W, C)
+    candidate_maps: (B, H * W, C)
+    """
+    distances = torch.cdist(input_location, candidate_location)
+    return neirest_neighbores(input_maps, candidate_maps, distances, num_matches)
+
+def mlp(sizes: int, norm: str):
+    layers = []
+    for i in range(len(sizes)-2):
+        layers.append(nn.Linear(sizes[i], sizes[i+1]))
+        if norm == 'batch_norm': 
+            layers.append(nn.BatchNorm1d(sizes[i+1]))
+        elif norm == 'layer_norm':
+            layers.append(nn.LayerNorm(sizes[i+1]))
+        layers.append(nn.ReLU(True))
+    layers.append(nn.Linear(sizes[-2], sizes[-1], bias=False))
+    return nn.Sequential(*layers)
