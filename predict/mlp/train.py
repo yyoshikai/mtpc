@@ -113,14 +113,15 @@ else:
 if from_feature:
     assert args.structure is None
     class MLP(nn.Sequential):
-        def __init__(self, output_mean: float=0.0, output_std: float=1.0):
-            super().__init__(nn.Linear(512, 128), nn.GELU(), nn.Linear(128, 1))
+        def __init__(self, input_size, output_mean: float=0.0, output_std: float=1.0):
+            super().__init__(nn.Linear(input_size, 128), nn.GELU(), nn.Linear(128, 1))
             self.register_buffer('output_mean', torch.tensor(output_mean))
             self.register_buffer('output_std', torch.tensor(output_std))
             self.register_load_state_dict_post_hook(fill_output_mean_std)
         def forward(self, input):
             return super().forward(input).squeeze(-1)*self.output_std+self.output_mean
-    model = MLP(output_mean, output_std)
+    input_size = X.shape[1]
+    model = MLP(input_size, output_mean, output_std)
 else:
     use_weight = args.weight in structure2weights[args.structure] and args.weight is not None
     backbone = get_backbone(args.structure, args.weight if use_weight else None)
@@ -155,7 +156,6 @@ loader = DataLoader(train_data, args.batch_size, True, num_workers=args.num_work
 
 # Directory
 result_dir = make_dir(result_dir, args.duplicate)
-os.makedirs(f"{result_dir}/models", exist_ok=True)
 with open(f"{result_dir}/args.yaml", 'w') as f:
     yaml.dump(vars(args), f)
 
@@ -228,7 +228,7 @@ for epoch in range(args.n_epoch):
         ## Early stopping
         if best_score < score:
             if best_epoch is not None:
-                os.remove(f"{result_dir}/models/best_model_{best_epoch}.pth")
+                os.remove(f"{result_dir}/best_model_{best_epoch}.pth")
             best_score = score
             best_epoch = epoch
             torch.save(model.state_dict(), f"{result_dir}/best_model_{epoch}.pth")
