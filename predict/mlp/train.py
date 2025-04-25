@@ -25,7 +25,8 @@ parser.add_argument("--use-val", action='store_true', help="If True, use validat
 parser.add_argument("--from-scratch", action='store_true')
 parser.add_argument("--structure", choices=structures)
 parser.add_argument('--weight')
-parser.add_argument('--save-all', action='store_true')
+parser.add_argument('--save-steps', action='store_true')
+parser.add_argument('--save-model', action='store_true')
 args = parser.parse_args()
 
 ## set default args
@@ -194,14 +195,15 @@ for epoch in range(args.n_epoch):
     epoch += 1   
 
     ## Save steps
-    if args.save_all:
+    if args.save_steps:
         df = pd.DataFrame({'loss': losses})
         df.to_csv(f"{result_dir}/steps.csv", index_label='step')
 
     ## Evaluate
     if args.use_val:
         if epoch == args.n_epoch:
-            torch.save(model.state_dict(), f"{result_dir}/models/{epoch}.pth")
+            torch.save(model.state_dict(), f"{result_dir}/best_model_{epoch}.pth")
+            best_epoch = epoch
     else:
         logger.info(f"Evaluating epoch {epoch}...")
         model.eval()
@@ -226,10 +228,10 @@ for epoch in range(args.n_epoch):
         ## Early stopping
         if best_score < score:
             if best_epoch is not None:
-                os.remove(f"{result_dir}/models/{best_epoch}.pth")
+                os.remove(f"{result_dir}/models/best_model_{best_epoch}.pth")
             best_score = score
             best_epoch = epoch
-            torch.save(model.state_dict(), f"{result_dir}/models/{epoch}.pth")
+            torch.save(model.state_dict(), f"{result_dir}/best_model_{epoch}.pth")
         else:
             if epoch - best_epoch >= args.early_stop:
                 break
@@ -237,7 +239,7 @@ for epoch in range(args.n_epoch):
 logger.info(f"Evaluating for test_data with best model ({best_epoch})...")
 test_loader = DataLoader(test_data, args.batch_size*2, False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
 if not args.use_val:
-    model.load_state_dict(torch.load(f"{result_dir}/models/{best_epoch}.pth", weights_only=True))
+    model.load_state_dict(torch.load(f"{result_dir}/best_model_{best_epoch}.pth", weights_only=True))
 model.eval()
 preds = []
 targets = []
@@ -261,7 +263,7 @@ else:
         'AUPR': average_precision_score(targets, preds),
     }})
 df.to_csv(f"{result_dir}/score.csv")
-if not args.save_all:
-    shutil.rmtree(f"{result_dir}/models", ignore_errors=True)
+if not args.save_model:
+    os.remove(f"{result_dir}/best_model_{best_epoch}.pth")
 logger.info(f"training {args.studyname}/{args.target}/{args.split} finished!")
 
