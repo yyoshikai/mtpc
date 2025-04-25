@@ -20,6 +20,7 @@ from PIL.Image import Image
 import torchvision.transforms as T
 from torchvision.transforms import InterpolationMode
 from ..data.image import RandomSolarization
+from ..utils import logend
 
 class GaussianBlur(object):
     def __init__(self, p):
@@ -62,19 +63,18 @@ class VICRegTransform(object):
         self.n_saved = 0
 
     def __call__(self, x: Image):
-        x1 = self.transform(x)
-        x2 = self.transform_prime(x)
-        if self.n_saved < self.n_example:
-            self.logger.info(f"saving {self.n_saved}..")
-            os.makedirs(f"{self.example_dir}/{self.n_saved}", exist_ok=True)
-            x.save(f"{self.example_dir}/{self.n_saved}/original.png")
-            x1.save(f"{self.example_dir}/{self.n_saved}/x0.png")
-            x2.save(f"{self.example_dir}/{self.n_saved}/x1.png")
-            self.logger.info(f"saved.")
-            self.n_saved += 1
-        x1 = self.tensor_transform(x1)
-        x2 = self.tensor_transform(x2)
-        return x1, x2
+        # with logend(self.logger, 'VICRegTransform'):
+            x1 = self.transform(x)
+            x2 = self.transform_prime(x)
+            if self.n_saved < self.n_example:
+                os.makedirs(f"{self.example_dir}/{self.n_saved}", exist_ok=True)
+                x.save(f"{self.example_dir}/{self.n_saved}/original.png")
+                x1.save(f"{self.example_dir}/{self.n_saved}/x0.png")
+                x2.save(f"{self.example_dir}/{self.n_saved}/x1.png")
+                self.n_saved += 1
+            x1 = self.tensor_transform(x1)
+            x2 = self.tensor_transform(x2)
+            return x1, x2
 
 class VICReg(nn.Module):
     """

@@ -1,20 +1,22 @@
 import sys, os, argparse, yaml, psutil, logging, math
 from contextlib import nullcontext
+from logging import getLogger
 import numpy as np, pandas as pd
 from tqdm import tqdm
 
 import torch
 from torch.utils.data import DataLoader, ConcatDataset
 from torch.optim import lr_scheduler as lrs
-from pl_bolts.optimizers import LARS
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [WORKDIR, f"{WORKDIR}/mtpc"]
 from tools.path import make_result_dir
 from tools.logger import get_logger, add_file_handler, add_stream_handler
 from src.model import BarlowTwins, VICReg, VICRegL
 from src.model.backbone import structures, get_backbone, structure2weights
+from src.optimizer.lars import LARS
 from src.data.mtpc import MTPCRegionDataset, MTPCUHRegionDataset, MTPCVDRegionDataset
 from src.data.image import TransformDataset
+from src.utils.utils import logend
 DDIR = f"{WORKDIR}/cheminfodata/mtpc"
 
 # Arguments
@@ -116,7 +118,7 @@ logger = get_logger()
 add_file_handler(logger, f'{rdir}/info.log', level=logging.INFO)
 add_file_handler(logger, f'{rdir}/debug.log', level=logging.DEBUG)
 add_stream_handler(logger)
-
+getLogger('tifffile').disabled = True
 ## device
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 logger.info(f"device={device}")
@@ -202,7 +204,7 @@ transform = model.get_train_transform(f"{rdir}/augment_example", 1)
 data = TransformDataset(data, transform)
 loader = DataLoader(data, batch_size=args.bsz, shuffle=True, 
     num_workers=args.num_workers, pin_memory=True)
-
+loader_size = math.ceil(len(data)/args.bsz)
 
 
 # Training
@@ -212,17 +214,26 @@ for iepoch in range(args.nepoch):
     model.train()
 
     losses = []
-    with tqdm(loader, dynamic_ncols=True) if args.tqdm else nullcontext() as pbar:
-        for x in loader:
-            optimizer.zero_grad()
-            loss = model(x)
-            losses.append(loss.item())
-            loss.backward()
-            optimizer.step()
-            if args.tqdm:
-                pbar.update()
-                mem = psutil.virtual_memory()
-                pbar.postfix = f"{mem.used/2**30:.03f}/{mem.total/2**30:.03f}"
+    data_iter = loader.__iter__()
+    if args.tqdm:
+        pbar = tqdm(total=loader_size, dynamic_ncols=True)
+    step = 0
+    while True:
+        try:
+            with logend(logger, 'load_data') if step == 0 else nullcontext():
+                x = data_iter.__next__()
+        except StopIteration:
+            break
+        optimizer.zero_grad()
+        loss = model(x)
+        losses.append(loss.item())
+        loss.backward()
+        optimizer.step()
+        if args.tqdm:
+            pbar.update()
+            mem = psutil.virtual_memory()
+            pbar.postfix = f"{mem.used/2**30:.03f}GB/{mem.total/2**30:.03f}GB"
+        step += 1
     mean_loss = np.mean(losses)
     mean_losses.append(mean_loss)
     df_epoch = pd.DataFrame({'loss': mean_losses})
