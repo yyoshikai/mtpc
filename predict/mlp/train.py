@@ -85,7 +85,7 @@ add_stream_handler(logger)
 # Data
 if args.add:
     if from_feature:
-        X = np.load(f"{WORKDIR}/mtpc/featurize/{args.feature_name}/feat_added.npy")
+        X = np.load(f"{WORKDIR}/mtpc/featurize/{args.feature_name}/feat_added.npy").to(np.float32)
         input_data = TensorDataset(X)
     else:
         datas = []
@@ -96,7 +96,7 @@ if args.add:
         input_data = ConcatDataset(datas)
 else:
     if from_feature:
-        X = np.load(f"{WORKDIR}/mtpc/featurize/{args.feature_name}/feat_all.npy")
+        X = np.load(f"{WORKDIR}/mtpc/featurize/{args.feature_name}/feat_all.npy").to(np.float32)
         input_data = TensorDataset(X)
     else:
         data = MTPCDataset(256)
