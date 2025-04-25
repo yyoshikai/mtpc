@@ -28,6 +28,7 @@ parser.add_argument('--nepoch', type=int, default=50)
 parser.add_argument("--duplicate", default='ask')
 parser.add_argument('--num-workers', type=int, default=4)
 parser.add_argument('--tqdm', action='store_true')
+parser.add_argument('--fp16', action='store_true')
 ## model
 parser.add_argument('--scheme', required=True)
 parser.add_argument('--structure', choices=structures, required=True)
@@ -124,7 +125,6 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 logger.info(f"device={device}")
 
 # Data
-
 data = []
 ## main data
 if 'main' in args.data:
@@ -225,7 +225,8 @@ for iepoch in range(args.nepoch):
         except StopIteration:
             break
         optimizer.zero_grad()
-        loss = model(x)
+        with torch.autocast('cuda', torch.bfloat16) if args.fp16 else nullcontext():
+            loss = model(x)
         losses.append(loss.item())
         loss.backward()
         optimizer.step()
