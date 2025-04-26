@@ -1,10 +1,12 @@
-from typing import Optional
+from typing import Optional, Any
+from copy import copy
 from collections.abc import Callable
+from logging import getLogger
 import torch
 import torch.nn as nn
 from torch import Tensor
+from torch.nn.modules.module import _IncompatibleKeys
 from torchvision.models import resnet, vision_transformer as vit, convnext, WeightsEnum
-
 
 class BasicBlock2(nn.Module):
     expansion: int = 1
@@ -79,6 +81,7 @@ class Backbone(nn.Module):
     
 
 class ResNet(resnet.ResNet, Backbone):
+    logger = getLogger(f"{__module__}.{__qualname__}")
     structure2params = {
         'resnet18': dict(block=BasicBlock2, layers=[2, 2, 2, 2]), 
         'resnet34': dict(block=BasicBlock2, layers=[3, 4, 6, 3]), 
@@ -106,6 +109,27 @@ class ResNet(resnet.ResNet, Backbone):
         super().__init__(**self.structure2params[structure], num_classes=num_classes)
         if weight is not None:
             self.load_state_dict(weight.get_state_dict(progress=True, check_hash=True))
+
+        def modify_old_state_dict(module: ResNet, state_dict: dict[str, Any], prefix: str, 
+                local_metadata, strict, missing_keys, unexpected_keys, error_msgs):
+            old2new = ['conv1', 'bn1', 'relu', 'maxpool', 'layer1', 'layer2', 'layer3', 'layer4']
+            keys = list(state_dict.keys())
+            logged = False
+            for key in keys:
+                for i, new in enumerate(old2new):
+                    if key.startswith(f"{prefix}{i}"):
+                        if not logged:
+                            module.logger.info("Modifying old state dict...")
+                            logged = True
+                        new_key = f"{prefix}{new}"+key[len(f"{prefix}{i}"):]
+                        state_dict[new_key] = state_dict.pop(key)
+        self._register_load_state_dict_pre_hook(modify_old_state_dict, with_module=True)
+        def ignore_missing_fc(module: ResNet, incompatible_keys: _IncompatibleKeys):
+            for key in copy(incompatible_keys.missing_keys):
+                if key in ['fc.weight', 'fc.bias']:
+                    module.logger.info(f"Ignoring missing keys: {key}")
+                    incompatible_keys.missing_keys.remove(key)
+        self.register_load_state_dict_post_hook(ignore_missing_fc)
 
     def get_pos_feature(self, x: Tensor):
         x = self.conv1(x)
@@ -282,3 +306,5 @@ def get_backbone(structure: str, weight = None) -> Backbone:
         if structure in cls.structures():
             return cls(structure, weight)
     raise ValueError(f"Unsupported {structure=}")
+
+

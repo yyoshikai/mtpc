@@ -133,6 +133,7 @@ else:
         for key, value in whole_state.items():
             if key.startswith('backbone.'):
                 state[key[9:]] = value
+        model.backbone.__delattr__
         logger.info(model.backbone.load_state_dict(state))
     
     ## get transform
