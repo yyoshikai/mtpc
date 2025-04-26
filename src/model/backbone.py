@@ -179,7 +179,6 @@ class ViT(vit.VisionTransformer, Backbone):
 
         super().__init__(**self.structure2params[structure], 
                 num_classes=num_classes, image_size=image_size)
-        Backbone.__init__(self, structure, weight)
         if weight is not None:
             self.load_state_dict(weight.get_state_dict(progress=True, check_hash=True))
 
@@ -271,7 +270,6 @@ class ConvNeXt(convnext.ConvNeXt, Backbone):
             weight = self.structure2weights[structure][weight]
             num_classes = len(weight.meta['categories'])
         super().__init__(**self.structure2params[structure], num_classes=num_classes)
-        Backbone.__init__(self, structure, weight)
         if weight is not None:
             self.load_state_dict(weight.get_state_dict(progress=True, check_hash=True))
         self._output_size = self.classifier[0].normalized_shape[0]
