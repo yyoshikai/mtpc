@@ -7,7 +7,6 @@ from torch.utils.data import Dataset, ConcatDataset
 import numpy as np, pandas as pd
 from PIL import Image
 from tifffile import TiffFile
-from ..utils import logend
 from ..utils.logger import get_logger
 
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
