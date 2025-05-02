@@ -1,5 +1,6 @@
 import sys, os
 from argparse import ArgumentParser
+from glob import glob
 WORKDIR = os.environ.get('WORKDIR', '/workspace')
 sys.path += [f'{WORKDIR}/mtpc', WORKDIR]
 from src.model.backbone import structures
@@ -27,6 +28,7 @@ parser.add_argument("--structure", choices=structures)
 parser.add_argument('--weight')
 parser.add_argument('--save-steps', action='store_true')
 parser.add_argument('--save-model', action='store_true')
+parser.add_argument('--save-pred', action='store_true')
 args = parser.parse_args()
 
 ## set default args
@@ -39,10 +41,13 @@ if args.num_workers is None:
 # First check whether or not to do training.
 ## Whether result exists
 result_dir = f"./results/{args.studyname}/{args.target}/{args.split}"
-if os.path.exists(f"{result_dir}/score.csv"):
-    print(f"{result_dir}/score.csv already exists.")
+result_exist = True
+if os.path.exists(f"{result_dir}/score.csv") \
+        and ((not args.save_steps) or os.path.exists(f"{result_dir}/steps.csv")) \
+        and ((not args.save_model) or (len(glob(f"{result_dir}/best_model_*.pth")) >= 1)) \
+        and ((not args.save_pred) or os.path.exists(f"{result_dir}/preds.csv")):
+    print(f"All result exists for {result_dir}")
     sys.exit()
-
 ## fold exists?
 fold_path = f"{WORKDIR}/mtpc/data/split/{'add' if args.add else 'main'}/{args.split}.npy"
 if not os.path.exists(fold_path):
@@ -153,6 +158,7 @@ else:
     val_data = Subset(data, np.where(val_mask)[0])
     test_data = Subset(data, np.where(test_mask)[0])
     val_loader = DataLoader(val_data, args.batch_size*2, False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
+print(f"{len(train_data)=}, {len(test_data)=}")
 loader = DataLoader(train_data, args.batch_size, True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
 
 # Directory
@@ -251,6 +257,8 @@ with torch.inference_mode():
         targets.append(target.numpy())
 preds = np.concatenate(preds)
 targets = np.concatenate(targets)
+if args.save_pred:
+    pd.DataFrame({'pred': preds}).to_csv(f"{result_dir}/preds.csv", index=False)
 if args.reg:
     df = pd.DataFrame({'score': {
         'RMSE': mean_squared_error(targets, preds)**0.5,
