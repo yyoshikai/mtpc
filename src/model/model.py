@@ -28,3 +28,13 @@ class PredictModel(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         return self.head(self.backbone(x)).squeeze(-1)*self.output_std+self.output_mean
+
+
+class MLP(nn.Sequential):
+    def __init__(self, input_size, output_mean: float=0.0, output_std: float=1.0):
+        super().__init__(nn.Linear(input_size, 128), nn.GELU(), nn.Linear(128, 1))
+        self.register_buffer('output_mean', torch.tensor(output_mean))
+        self.register_buffer('output_std', torch.tensor(output_std))
+        self.register_load_state_dict_post_hook(fill_output_mean_std)
+    def forward(self, input):
+        return super().forward(input).squeeze(-1)*self.output_std+self.output_mean

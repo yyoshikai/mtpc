@@ -23,7 +23,6 @@ parser.add_argument("--compile", action='store_true')
 parser.add_argument("--duplicate", default='ask')
 parser.add_argument("--early-stop", type=int, default=10)
 parser.add_argument("--use-val", action='store_true', help="If True, use validation set for training. The model is evaluated by the final model.")
-parser.add_argument("--from-scratch", action='store_true')
 parser.add_argument("--structure", choices=structures)
 parser.add_argument('--weight')
 parser.add_argument('--save-steps', action='store_true')
@@ -67,23 +66,19 @@ if train_mask is None:
     sys.exit()
 
 # import
-import yaml, math, shutil
-from tqdm import tqdm
+import yaml
 import pandas as pd, torch, torch.nn as nn
-from torch.optim import lr_scheduler
 from torch.utils.data import StackDataset, Subset, DataLoader, ConcatDataset
-from sklearn.metrics import roc_auc_score, average_precision_score, r2_score, mean_squared_error, mean_absolute_error
 from src.utils.logger import add_stream_handler, get_logger
 from src.utils.path import make_dir
 from src.data import untuple_dataset 
 from src.data.mtpc import MTPCUHRegionDataset, MTPCVDRegionDataset, MTPCDataset
 from src.data.image import TransformDataset
-from src.model import PredictModel, fill_output_mean_std
-from src.model.backbone import get_backbone, structures, structure2weights
+from src.model import PredictModel, MLP
+from src.model.backbone import get_backbone, structure2weights
 from src.data import TensorDataset
 
 # Environment
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 logger = get_logger()
 add_stream_handler(logger)
         
@@ -117,14 +112,6 @@ else:
     output_std = 1.0
 if from_feature:
     assert args.structure is None
-    class MLP(nn.Sequential):
-        def __init__(self, input_size, output_mean: float=0.0, output_std: float=1.0):
-            super().__init__(nn.Linear(input_size, 128), nn.GELU(), nn.Linear(128, 1))
-            self.register_buffer('output_mean', torch.tensor(output_mean))
-            self.register_buffer('output_std', torch.tensor(output_std))
-            self.register_load_state_dict_post_hook(fill_output_mean_std)
-        def forward(self, input):
-            return super().forward(input).squeeze(-1)*self.output_std+self.output_mean
     input_size = X.shape[1]
     model = MLP(input_size, output_mean, output_std)
 else:
@@ -145,7 +132,6 @@ else:
     transforms = backbone.get_transforms()
     input_data = TransformDataset(input_data, transforms)
 
-
 target_data = TensorDataset(y)
 data = StackDataset(input_data, target_data)
 
@@ -153,126 +139,22 @@ prefetch_factor = 5 if args.num_workers > 0 else None
 if args.use_val:
     train_data = Subset(data, np.where(train_mask|val_mask)[0])
     test_data = Subset(data, np.where(test_mask)[0])
+    val_loader = None
 else:
     train_data = Subset(data, np.where(train_mask)[0])
     val_data = Subset(data, np.where(val_mask)[0])
     test_data = Subset(data, np.where(test_mask)[0])
     val_loader = DataLoader(val_data, args.batch_size*2, False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
 print(f"{len(train_data)=}, {len(test_data)=}")
-loader = DataLoader(train_data, args.batch_size, True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
-
+train_loader = DataLoader(train_data, args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
+test_loader = DataLoader(test_data, args.batch_size*2, shuffle=False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
 # Directory
 result_dir = make_dir(result_dir, args.duplicate)
 with open(f"{result_dir}/args.yaml", 'w') as f:
     yaml.dump(vars(args), f)
 
-model.to(device)
-if args.compile:
-    model = torch.compile(model)
-if args.reg:
-    criterion = nn.MSELoss(reduction='mean')
-else:
-    criterion = nn.BCEWithLogitsLoss(reduction='mean')
-optimizer = torch.optim.Adam(model.parameters())
-scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
-
-# Train
-context = tqdm if args.tqdm else lambda x: x
-losses = []
-score_path = f"{result_dir}/val_scores.csv"
-with open(score_path, 'w') as f:
-    if args.reg:
-        f.write("epoch,R^2,RMSE,MAE\n")
-    else:
-        f.write("epoch,AUROC,AUPR")
-
-best_score = -math.inf
-best_epoch = None
-for epoch in range(args.n_epoch):
-    
-    model.train()
-    for input_batch, target_batch in context(loader):
-        optimizer.zero_grad()
-        pred_batch = model(input_batch.to(device))
-        loss = criterion(pred_batch, target_batch.to(torch.float).to(device)) / output_std
-        loss.backward()
-        losses.append(loss.item())
-        optimizer.step()
-    scheduler.step()
-    epoch += 1   
-
-    ## Save steps
-    if args.save_steps:
-        df = pd.DataFrame({'loss': losses})
-        df.to_csv(f"{result_dir}/steps.csv", index_label='step')
-
-    ## Evaluate
-    if args.use_val:
-        if epoch == args.n_epoch:
-            torch.save(model.state_dict(), f"{result_dir}/best_model_{epoch}.pth")
-            best_epoch = epoch
-    else:
-        logger.info(f"Evaluating epoch {epoch}...")
-        model.eval()
-        preds = []
-        targets = []
-        with torch.inference_mode():
-            for input_batch, target_batch in context(val_loader):
-                pred_batch = model(input_batch.to(device))
-                preds.append(pred_batch.cpu().numpy())
-                targets.append(target_batch.numpy())
-        preds = np.concatenate(preds)
-        targets = np.concatenate(targets)
-        with open(score_path, 'a') as f:
-            if args.reg:
-                score = -mean_squared_error(targets, preds)
-                f.write(f"{epoch},{r2_score(targets,preds)},{mean_squared_error(targets, preds)**0.5},{mean_absolute_error(targets, preds)}\n")
-            else:
-                targets = targets.astype(int)
-                f.write(f"{epoch},{roc_auc_score(targets, preds)},{average_precision_score(targets, preds)}\n")
-                score = roc_auc_score(targets, preds)
-
-        ## Early stopping
-        if best_score < score:
-            if best_epoch is not None:
-                os.remove(f"{result_dir}/best_model_{best_epoch}.pth")
-            best_score = score
-            best_epoch = epoch
-            torch.save(model.state_dict(), f"{result_dir}/best_model_{epoch}.pth")
-        else:
-            if epoch - best_epoch >= args.early_stop:
-                break
-# Evaluate for test data
-logger.info(f"Evaluating for test_data with best model ({best_epoch})...")
-test_loader = DataLoader(test_data, args.batch_size*2, False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
-if not args.use_val:
-    model.load_state_dict(torch.load(f"{result_dir}/best_model_{best_epoch}.pth", weights_only=True))
-model.eval()
-preds = []
-targets = []
-with torch.inference_mode():
-    for input, target in context(test_loader):
-        pred = model(input.to(device))
-        preds.append(pred.cpu().numpy())
-        targets.append(target.numpy())
-preds = np.concatenate(preds)
-targets = np.concatenate(targets)
-if args.save_pred:
-    pd.DataFrame({'pred': preds}).to_csv(f"{result_dir}/preds.csv", index=False)
-if args.reg:
-    df = pd.DataFrame({'score': {
-        'RMSE': mean_squared_error(targets, preds)**0.5,
-        'MAE': mean_absolute_error(targets, preds),
-        'R^2': r2_score(targets, preds)
-    }})
-else:
-    targets = targets.astype(int)
-    df = pd.DataFrame({'score': {
-        'AUROC': roc_auc_score(targets, preds),
-        'AUPR': average_precision_score(targets, preds),
-    }})
-df.to_csv(f"{result_dir}/score.csv")
-if not args.save_model:
-    os.remove(f"{result_dir}/best_model_{best_epoch}.pth")
-logger.info(f"training {args.studyname}/{args.target}/{args.split} finished!")
+from src.predict import predict
+predict(model, args.reg, result_dir, args.n_epoch, args.early_stop, 
+    output_std, train_loader, test_loader, val_loader, args.compile, args.tqdm, 
+    args.save_steps, args.save_pred, args.save_model)
 
