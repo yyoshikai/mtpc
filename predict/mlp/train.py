@@ -40,7 +40,6 @@ if args.num_workers is None:
 # First check whether or not to do training.
 ## Whether result exists
 result_dir = f"./results/{args.studyname}/{args.target}/{args.split}"
-result_exist = True
 if os.path.exists(f"{result_dir}/score.csv") \
         and ((not args.save_steps) or os.path.exists(f"{result_dir}/steps.csv")) \
         and ((not args.save_model) or (len(glob(f"{result_dir}/best_model_*.pth")) >= 1)) \

@@ -1,4 +1,5 @@
 import sys, os, math
+from glob import glob
 from typing import Optional
 from logging import getLogger
 import numpy as np, pandas as pd
@@ -57,6 +58,14 @@ def predict(model: nn.Module,
     save_pred: bool=False, 
     save_model: bool=False
 ):
+
+    # Result exists?
+    if os.path.exists(f"{result_dir}/score.csv") \
+            and ((not save_steps) or os.path.exists(f"{result_dir}/steps.csv")) \
+            and ((not save_model) or (len(glob(f"{result_dir}/best_model_*.pth")) >= 1)) \
+            and ((not save_pred) or os.path.exists(f"{result_dir}/preds.csv")):
+        print(f"All result exists for {result_dir}")
+        return
 
     # Environment
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
