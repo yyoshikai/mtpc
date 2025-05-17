@@ -1,21 +1,4 @@
-import sys, os, logging, pickle
-from typing import Optional
-from argparse import ArgumentParser
-import numpy as np, pandas as pd
-sys.path += ['/workspace', '/workspace/mtpc']
-import optuna, xgboost as xgb
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from scipy.stats import spearmanr
-from src.utils.logger import get_logger, add_file_handler, add_stream_handler
-import cuml
 
-df = pd.read_csv("/workspace/mtpc/data/target/patch.csv", index_col=0)
-dfa = pd.read_csv("/workspace/mtpc/data/target/add_patch.csv", index_col=0)
-dfa_mask = np.isfinite(dfa['dyskeratosis'])
-dfa = dfa[dfa_mask]
-y_train_val = df['n_ak']
-y_test = dfa['dyskeratosis']
-y = np.concatenate([y_train_val, y_test])
 
 def metrics(y_pred_test, y_test):
     rec = spearmanr(y_pred_test, y_test)
@@ -36,11 +19,13 @@ def predict_patch(split, fname, model):
     if os.path.exists(f"{rdir}/score.csv"):
         logger.info(f"All results exist for {fname=}, {split=}")
         return
+    import optuna, xgboost as xgb
+    import cuml
 
     # load folds
     folds = np.load(f"/workspace/mtpc/data/split/main/{split}.npy")
-    X_train_val = np.load(f"/workspace/mtpc/featurize/resnet18/imagenet/feat_all.npy")
-    X_test = np.load(f"/workspace/mtpc/featurize/resnet18/imagenet/feat_added.npy")
+    X_train_val = np.load(f"/workspace/mtpc/featurize/{fname}/feat_all.npy")
+    X_test = np.load(f"/workspace/mtpc/featurize/{fname}/feat_added.npy")
     X_test = X_test[dfa_mask]
     X = np.concatenate([X_train_val, X_test])
 
@@ -118,13 +103,38 @@ def predict_patch(split, fname, model):
             .to_csv(f"{rdir}/score.csv")
 
 if __name__ == '__main__':
-    logging.captureWarnings(True)
-    logger = get_logger()
-    add_stream_handler(logger)
+
+    import sys, os, logging
+    from argparse import ArgumentParser
 
     parser = ArgumentParser()
     parser.add_argument('--fname', required=True)
     parser.add_argument('--split', required=True)
     parser.add_argument('--model', default='Linear')
     args = parser.parse_args()
+    
+    rdir = f"results/feature_ml/{args.model}/{args.fname}/{args.split}"
+    if os.path.exists(f"{rdir}/score.csv"):
+        print(f"All results exist for fname={args.fname}, split={args.split}")
+        sys.exit()
+
+    import pickle
+    import numpy as np, pandas as pd
+    from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+    from scipy.stats import spearmanr
+    sys.path += ['/workspace', '/workspace/mtpc']
+    from src.utils.logger import get_logger, add_stream_handler
+
+    logging.captureWarnings(True)
+    logger = get_logger()
+    add_stream_handler(logger)
+
+    df = pd.read_csv("/workspace/mtpc/data/target/patch.csv", index_col=0)
+    dfa = pd.read_csv("/workspace/mtpc/data/target/add_patch.csv", index_col=0)
+    dfa_mask = np.isfinite(dfa['dyskeratosis'])
+    dfa = dfa[dfa_mask]
+    y_train_val = df['n_ak']
+    y_test = dfa['dyskeratosis']
+    y = np.concatenate([y_train_val, y_test])
+
     predict_patch(**vars(args))

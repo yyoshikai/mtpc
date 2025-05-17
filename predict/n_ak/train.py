@@ -29,6 +29,8 @@ parser.add_argument('--weight')
 ## training
 parser.add_argument("--batch-size", type=int, default=64)
 parser.add_argument("--n-epoch", type=int, default=30)
+parser.add_argument("--lr", type=float, default=0.001)
+parser.add_argument("--optimizer", default='adam')
 parser.add_argument("--num-workers", type=int, default=None)
 parser.add_argument("--tqdm", action='store_true')
 parser.add_argument("--compile", action='store_true')
@@ -121,7 +123,7 @@ with open(f"{result_dir}/args.yaml", 'w') as f:
     yaml.dump(vars(args), f)
 
 from src.predict import predict
-predict(model, True, result_dir, args.n_epoch, args.early_stop, output_std, 
-        train_loader, test_loader, None, args.compile, args.tqdm, 
+predict(model, True, result_dir, args.n_epoch, args.early_stop, args.lr, output_std, 
+        train_loader, test_loader, None, args.optimizer, args.compile, args.tqdm, 
         args.save_steps, args.save_pred, args.save_model)
 

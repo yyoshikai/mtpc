@@ -11,12 +11,13 @@ WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [WORKDIR, f"{WORKDIR}/mtpc"]
 from tools.path import make_result_dir
 from tools.logger import get_logger, add_file_handler, add_stream_handler
-from src.model import BarlowTwins, VICReg, VICRegL
 from src.model.backbone import structures, get_backbone, structure2weights
+from src.model.scheme import scheme_name2class
 from src.optimizer.lars import LARS
 from src.data.mtpc import MTPCRegionDataset, MTPCUHRegionDataset, MTPCVDRegionDataset
 from src.data.image import TransformDataset
 from src.utils.utils import logend
+
 DDIR = f"{WORKDIR}/cheminfodata/mtpc"
 
 # Arguments
@@ -35,6 +36,7 @@ parser.add_argument('--structure', choices=structures, required=True)
 parser.add_argument('--weight')
 args, _ = parser.parse_known_args()
 
+scheme_cls = scheme_name2class[args.scheme]
 if args.scheme == 'bt':
     parser.add_argument('--bsz', type=int, default=64)
     parser.add_argument('--lr', type=float, default=0.01)
@@ -46,13 +48,6 @@ if args.scheme == 'bt':
         parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--scheduler', default='cosine_annealing')
 
-    parser.add_argument('--head-size', type=int, default=128)
-    parser.add_argument('--lambda-param', type=float, default=5e-3)
-    ## augmentation
-    parser.add_argument('--resize-scale-min', type=float, default=0.08)
-    parser.add_argument('--resize-scale-max', type=float, default=1.0)
-    parser.add_argument('--resize-ratio-max', type=float, default=4/3)
-
 elif args.scheme == 'vicreg':
     # --arch resnet50 --epochs 100
     parser.add_argument('--bsz', type=int, default=512)
@@ -63,12 +58,6 @@ elif args.scheme == 'vicreg':
     if args.optimizer == 'lars':
         parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--scheduler', default='constant')
-
-    parser.add_argument('--sim-coeff', type=float, default=25.0)
-    parser.add_argument('--std-coeff', type=float, default=25.0)
-    parser.add_argument('--cov-coeff', type=float, default=1.0)
-    parser.add_argument('--head-sizes', type=int, nargs='+', 
-            default=[8192, 8192, 8192])
 
 elif args.scheme == 'vicregl':
 
@@ -85,20 +74,8 @@ elif args.scheme == 'vicregl':
     if args.optimizer == 'lars':
         parser.add_argument('--momentum', type=float, default=0.9)
     parser.add_argument('--scheduler', default='cosine_annealing_warmup')
-    
-    parser.add_argument('--sim-coeff', type=float, default=25.0)
-    parser.add_argument('--std-coeff', type=float, default=25.0)
-    parser.add_argument('--cov-coeff', type=float, default=1.0)
-    parser.add_argument('--head-sizes', type=int, nargs='+', 
-            default=[8192, 8192, 8192])
-    parser.add_argument('--map-head-sizes', type=int, nargs='+', 
-            default=[512, 512, 512])
-    parser.add_argument('--num-matches', type=int, nargs='+', default=[20, 4])
-    parser.add_argument("--size-crops", type=int, nargs="+", default=[224, 96])
-    parser.add_argument("--num-crops", type=int, nargs="+", default=[2, 6])
-    parser.add_argument("--min_scale_crops", type=float, nargs="+", default=[0.4, 0.08])
-    parser.add_argument("--max_scale_crops", type=float, nargs="+", default=[1, 0.4])
-    parser.add_argument('--alpha', default=0.75)
+scheme_cls.add_args(parser)
+
 args, _ = parser.parse_known_args()
 if args.scheduler == 'cosine_annealing_warmup':
     parser.add_argument('--warmup', type=int, default=10) # default in VICRegL
@@ -146,23 +123,7 @@ data = ConcatDataset(data)
 # Model
 weight = args.weight if args.weight in structure2weights[args.structure] else None
 backbone = get_backbone(args.structure, weight)
-match args.scheme:
-    case 'bt':
-        model = BarlowTwins(backbone, args.lambda_param, args.head_size, 
-                args.resize_scale_min, args.resize_scale_max, args.resize_ratio_max)
-    case 'vicreg':
-        model = VICReg(backbone, args.head_sizes, args.sim_coeff, 
-                args.std_coeff, args.cov_coeff)
-    case 'vicregl':
-        head_norm = 'batch_norm' if 'resnet' in args.structure else 'layer_norm'
-        logger.info(f"{head_norm=}")
-
-        model = VICRegL(backbone, args.head_sizes, args.map_head_sizes, args.alpha, 
-                head_norm, args.sim_coeff, args.std_coeff, args.cov_coeff, True, 
-                args.num_matches, False, args.size_crops, args.num_crops, 
-                args.min_scale_crops, args.max_scale_crops, True)
-    case _:
-        raise ValueError
+model = scheme_cls.from_args(args, backbone)
 model.to(device)
 match args.optimizer:
     case 'adam':

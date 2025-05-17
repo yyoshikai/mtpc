@@ -6,6 +6,7 @@
 
 import os
 from collections.abc import Callable
+from argparse import ArgumentParser, Namespace
 from typing import Optional
 from logging import getLogger
 import numpy as np
@@ -127,8 +128,26 @@ class VICReg(nn.Module):
         )
         return loss
     
-    def get_train_transform(self, example_dir, n_example) -> Callable[[Image], tuple[Tensor, Tensor]]:
+    def get_train_transform(self, example_dir, n_example):
         return VICRegTransform(example_dir, n_example)
+    
+    def get_eval_transform(self):
+        raise NotImplementedError
+
+    @classmethod
+    def add_args(cls, parser: ArgumentParser):
+        parser.add_argument('--head-sizes', type=int, nargs='+', 
+                default=[8192, 8192, 8192])
+        parser.add_argument('--sim-coeff', type=float, default=25.0)
+        parser.add_argument('--std-coeff', type=float, default=25.0)
+        parser.add_argument('--cov-coeff', type=float, default=1.0)
+
+    @classmethod
+    def from_args(cls, args: Namespace, backbone: Backbone):
+        return VICReg(backbone, args.head_sizes, args.sim_coeff, 
+                    args.std_coeff, args.cov_coeff)
+
+
 
 def off_diagonal(x):
     n, m = x.shape

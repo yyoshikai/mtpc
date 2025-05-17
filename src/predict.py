@@ -4,6 +4,7 @@ from typing import Optional
 from logging import getLogger
 import numpy as np, pandas as pd
 from tqdm import tqdm as _tqdm
+from schedulefree import RAdamScheduleFree
 import torch
 import torch.nn as nn
 from torch import Tensor
@@ -47,16 +48,19 @@ def predict(model: nn.Module,
     result_dir: str,
     n_epoch: int,
     early_stop: int,
+    lr: float,
     output_std: float,
     train_loader: DataLoader,
     test_loader: DataLoader, 
     val_loader: Optional[DataLoader] = None,
+    optimizer: str = 'adam',
 
     compile: bool=False, 
     tqdm: bool=False,
     save_steps: bool=False,
     save_pred: bool=False, 
-    save_model: bool=False
+    save_model: bool=False,
+
 ):
 
     # Result exists?
@@ -79,8 +83,23 @@ def predict(model: nn.Module,
         criterion = nn.MSELoss(reduction='mean')
     else:
         criterion = nn.BCEWithLogitsLoss(reduction='mean')
-    optimizer = torch.optim.Adam(model.parameters())
-    scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
+    match optimizer:
+        case 'adam':
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+            scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=0.9)
+            optimizer_mode = False
+        case 'radam_free':
+            optimizer = RAdamScheduleFree(model.parameters(), lr=lr)
+            scheduler = None
+            optimizer_mode = True
+            import torch.nn.functional as F
+            # bn採用時は何かしないといけないらしいので確認(F.batch_normを使っていたら把握できないが。。)。
+            for mod in model.modules():
+                if isinstance(mod, nn.modules.batchnorm._BatchNorm):
+                    raise ValueError(f"RAdamScheduleFree not supported for module with BatchNorm")
+        case _:
+            raise NotImplementedError
+
 
     # Train
     context = _tqdm if tqdm else lambda x: x
@@ -97,6 +116,7 @@ def predict(model: nn.Module,
     for epoch in range(n_epoch):
         
         model.train()
+        if optimizer_mode: optimizer.train()
         for input_batch, target_batch in context(train_loader):
             optimizer.zero_grad()
             pred_batch = model(input_batch.to(device))
@@ -104,7 +124,8 @@ def predict(model: nn.Module,
             loss.backward()
             losses.append(loss.item())
             optimizer.step()
-        scheduler.step()
+        if scheduler is not None:
+            scheduler.step()
         epoch += 1   
 
         ## Save steps
@@ -112,10 +133,12 @@ def predict(model: nn.Module,
             df = pd.DataFrame({'loss': losses})
             df.to_csv(f"{result_dir}/steps.csv", index_label='step')
 
+        model.eval()
+        if optimizer_mode: optimizer.eval()
+        
         ## Evaluate
         if val_loader is not None:
             logger.info(f"Evaluating epoch {epoch}...")
-            model.eval()
             preds = []
             targets = []
             with torch.inference_mode():

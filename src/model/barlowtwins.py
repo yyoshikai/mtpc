@@ -2,10 +2,12 @@ import os
 from typing import Optional
 from collections.abc import Callable
 from logging import getLogger
+from argparse import ArgumentParser, Namespace
 import torch
 import torch.nn as nn
 from torch import Tensor
 from .backbone import Backbone
+from .scheme import Scheme
 import torchvision.transforms as T
 from ..data.image import RandomSolarization
 from PIL.Image import Image
@@ -52,7 +54,7 @@ class BarlowTwinsTransform:
         x_b = self.tensor_transform(x_b)
         return x_a, x_b
 
-class BarlowTwins(nn.Module):
+class BarlowTwins(Scheme):
     def __init__(self, backbone: Backbone, lambda_param: float, 
             head_size: int, 
             resize_scale_min, resize_scale_max, resize_ratio_max):
@@ -104,3 +106,29 @@ class BarlowTwins(nn.Module):
     
     def get_train_transform(self, example_dir: Optional[str], n_example: int) -> Callable[[Image], tuple[Tensor, Tensor]]:
         return BarlowTwinsTransform(self.resize_scale_min, self.resize_scale_max, self.resize_ratio_max, example_dir, n_example)
+    
+    def get_eval_transform(self):
+        return T.Compose([
+            T.ToTensor(),
+            T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+    @classmethod
+    def add_args(cls, parser: ArgumentParser):
+        parser.add_argument('--head-size', type=int, default=128)
+        parser.add_argument('--lambda-param', type=float, default=5e-3)
+        ## augmentation
+        parser.add_argument('--resize-scale-min', type=float, default=0.08)
+        parser.add_argument('--resize-scale-max', type=float, default=1.0)
+        parser.add_argument('--resize-ratio-max', type=float, default=4/3)
+
+    @classmethod
+    def from_args(cls, backbone: Backbone, args: Namespace=None):
+        if args is None:
+            parser = ArgumentParser()
+            cls.add_args(parser)
+            args = parser.parse_args([])
+        return cls(backbone, args.lambda_param, args.head_size, 
+                args.resize_scale_min, args.resize_scale_max, args.resize_ratio_max)
+
+
