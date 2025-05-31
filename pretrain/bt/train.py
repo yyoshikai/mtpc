@@ -18,7 +18,6 @@ parser.add_argument('--num-workers', type=int, default=4)
 parser.add_argument('--tqdm', action='store_true')
 parser.add_argument('--fp16', action='store_true')
 ## model
-parser.add_argument('--scheme', required=True)
 parser.add_argument('--structure', choices=structures, required=True)
 parser.add_argument('--weight')
 

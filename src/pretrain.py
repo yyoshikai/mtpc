@@ -88,7 +88,7 @@ def pretrain(args: Namespace, model: nn.Module):
 
     ## Load weight
     if args.weight is not None and args.weight not in structure2weights[args.structure]:
-        state = torch.load(args.weight, weights_only=True)
+        state = torch.load(f"{WORKDIR}/mtpc/pretrain/{args.weight}", weights_only=True)
         new_state = {}
         for k, v in state.items():
             if k.startswith('backbone.'):
