@@ -7,7 +7,6 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 from .backbone import Backbone
-from .scheme import Scheme
 import torchvision.transforms as T
 from ..data.image import RandomSolarization
 from PIL.Image import Image
@@ -54,7 +53,7 @@ class BarlowTwinsTransform:
         x_b = self.tensor_transform(x_b)
         return x_a, x_b
 
-class BarlowTwins(Scheme):
+class BarlowTwins(nn.Module):
     def __init__(self, backbone: Backbone, lambda_param: float, 
             head_size: int, 
             resize_scale_min, resize_scale_max, resize_ratio_max):

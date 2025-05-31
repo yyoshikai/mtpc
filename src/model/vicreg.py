@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 import os
-from collections.abc import Callable
 from argparse import ArgumentParser, Namespace
 from typing import Optional
 from logging import getLogger
@@ -14,7 +13,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-from torch.nn.modules.module import _IncompatibleKeys
 from .backbone import Backbone
 from PIL import ImageFilter
 from PIL.Image import Image

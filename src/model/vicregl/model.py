@@ -7,10 +7,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
 from ..backbone import Backbone
-from ..scheme import Scheme
 from .transforms import VICRegLTransform
 
-class VICRegL(Scheme):
+class VICRegL(nn.Module):
     """
     TODO: add license
     """
@@ -343,30 +342,6 @@ class VICRegL(Scheme):
 
     def get_eval_transform(self):
         raise NotImplementedError
-    
-    @classmethod
-    def add_args(cls, parser: ArgumentParser):
-        parser.add_argument('--head-sizes', type=int, nargs='+', 
-                default=[8192, 8192, 8192])
-        parser.add_argument('--map-head-sizes', type=int, nargs='+', 
-                default=[512, 512, 512])
-        parser.add_argument('--alpha', default=0.75)
-        parser.add_argument('--sim-coeff', type=float, default=25.0)
-        parser.add_argument('--std-coeff', type=float, default=25.0)
-        parser.add_argument('--cov-coeff', type=float, default=1.0)
-        parser.add_argument('--num-matches', type=int, nargs='+', default=[20, 4])
-        parser.add_argument("--size-crops", type=int, nargs="+", default=[224, 96])
-        parser.add_argument("--num-crops", type=int, nargs="+", default=[2, 6])
-        parser.add_argument("--min_scale_crops", type=float, nargs="+", default=[0.4, 0.08])
-        parser.add_argument("--max_scale_crops", type=float, nargs="+", default=[1, 0.4])
-
-    @classmethod
-    def from_args(cls, args: Namespace, backbone: Backbone):
-        head_norm = 'batch_norm' if 'resnet' in backbone.structure else 'layer_norm'
-        return VICRegL(backbone, args.head_sizes, args.map_head_sizes, args.alpha, 
-                head_norm, args.sim_coeff, args.std_coeff, args.cov_coeff, True, 
-                args.num_matches, False, args.size_crops, args.num_crops, 
-                args.min_scale_crops, args.max_scale_crops, True)
 
 def off_diagonal(x):
     n, m = x.shape

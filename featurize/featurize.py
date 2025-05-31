@@ -11,9 +11,16 @@ sys.path += [WORKDIR, f"{WORKDIR}/mtpc"]
 from src.data.mtpc import MTPCDataset, MTPCUHRegionDataset, MTPCVDRegionDataset
 from src.data.image import TransformDataset
 from src.data import untuple_dataset
-from src.model import scheme_name2class
 from src.model.backbone import get_backbone
 from src.utils.model import get_substate
+from src.model.barlowtwins import BarlowTwins
+from src.model.vicreg import VICReg
+from src.model.vicregl import VICRegL
+scheme_name2cls = {
+    'bt': BarlowTwins,
+    'vicreg': VICReg, 
+    'vicregl': VICRegL
+}
 
 CDIR = os.path.dirname(__file__)
 
