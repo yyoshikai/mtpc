@@ -28,8 +28,9 @@ parser.add_argument('--weight')
 parser.add_argument('--save-steps', action='store_true')
 parser.add_argument('--save-model', action='store_true')
 parser.add_argument('--save-pred', action='store_true')
+parser.add_argument('--lr', type=float, default=0.001)
+parser.add_argument('--optimizer', default='adam')
 args = parser.parse_args()
-
 ## set default args
 from_feature = args.feature_name is not None
 if not from_feature:
@@ -152,7 +153,7 @@ with open(f"{result_dir}/args.yaml", 'w') as f:
     yaml.dump(vars(args), f)
 
 from src.predict import predict
-predict(model, args.reg, result_dir, args.n_epoch, args.early_stop, 
-    output_std, train_loader, test_loader, val_loader, args.compile, args.tqdm, 
+predict(model, args.reg, result_dir, args.n_epoch, args.early_stop, args.lr, 
+    output_std, train_loader, test_loader, val_loader, args.optimizer, args.compile, args.tqdm, 
     args.save_steps, args.save_pred, args.save_model)
 

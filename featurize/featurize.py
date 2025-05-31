@@ -107,7 +107,6 @@ if __name__ == '__main__':
     if args.remove_last_relu:
         backbone[-2][-1].relu2 = nn.Identity()
 
-    scheme_cls = scheme_name2class[scheme]
-    model = scheme_cls.from_args(args, backbone)    
+    model = BarlowTwins.from_args(backbone, pargs)    
     transform = model.get_eval_transform()
-    featurize_mtpc(f"{scheme}/{snameh}/{args.epoch}", args.num_workers, args['bsz'], backbone, transform)
+    featurize_mtpc(f"resnet18/{scheme}/{snameh}/{args.epoch}", args.num_workers, args.bsz, backbone, transform)
