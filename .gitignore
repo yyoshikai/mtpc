@@ -5,4 +5,6 @@
 !/predict/n_ak/train.py
 !/predict/n_ak/feature_ml.py
 !/src/*/*
+
 __pycache__/
+/pretrain/barlowtwins

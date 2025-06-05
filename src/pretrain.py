@@ -7,7 +7,8 @@ from tqdm import tqdm
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, ConcatDataset
+from torch.utils.data import DataLoader, ConcatDataset, Dataset
+from PIL import Image
 from torch.optim import lr_scheduler as lrs
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [WORKDIR, f"{WORKDIR}/mtpc"]
@@ -17,9 +18,33 @@ from src.model.backbone import structure2weights
 from src.optimizer.lars import LARS
 from src.data.mtpc import MTPCRegionDataset, MTPCUHRegionDataset, MTPCVDRegionDataset
 from src.data.image import TransformDataset
+from src.data.tggate import TGGATEDataset
 from src.utils.utils import logend
 
+
 DDIR = f"{WORKDIR}/cheminfodata/mtpc"
+
+def get_data(mtpc_main, mtpc_add, tggate) -> Dataset[Image.Image]:
+    
+    data = []
+    ## main data
+    if mtpc_main:
+        df_wsi = pd.read_csv(f"{DDIR}/processed/annotation_check0.csv", index_col=0, 
+            dtype=str, keep_default_na=False)
+        for wsi_name in df_wsi.index:
+            for region_idx in df_wsi.columns:
+                if df_wsi.loc[wsi_name, region_idx] == 'NaN':
+                    continue
+                data.append(MTPCRegionDataset(wsi_name, region_idx, 256))
+    ## additional data
+    if mtpc_add:
+        for wsi_idx in range(1, 106):
+            data += [MTPCUHRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
+        for wsi_idx in range(1, 55):
+            data += [MTPCVDRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
+    if tggate:
+        data.append(TGGATEDataset(f"{WORKDIR}/patho/preprocess/results/tggate_liver_late"))
+    data = ConcatDataset(data)
 
 def pretrain(args: Namespace, model: nn.Module):
 
@@ -41,23 +66,7 @@ def pretrain(args: Namespace, model: nn.Module):
     logger.info(f"device={device}")
 
     # Data
-    data = []
-    ## main data
-    if 'main' in args.data:
-        df_wsi = pd.read_csv(f"{DDIR}/processed/annotation_check0.csv", index_col=0, 
-            dtype=str, keep_default_na=False)
-        for wsi_name in df_wsi.index:
-            for region_idx in df_wsi.columns:
-                if df_wsi.loc[wsi_name, region_idx] == 'NaN':
-                    continue
-                data.append(MTPCRegionDataset(wsi_name, region_idx, 256))
-    ## additional data
-    if 'add' in args.data:
-        for wsi_idx in range(1, 106):
-            data += [MTPCUHRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
-        for wsi_idx in range(1, 55):
-            data += [MTPCVDRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
-    data = ConcatDataset(data)
+    data = get_data('main' in args.data, 'add' in args.data, 'tggate' in args.data)
 
     # Model
     model.to(device)
