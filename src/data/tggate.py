@@ -32,5 +32,3 @@ class TGGATEDataset(Dataset[Image.Image]):
 
     def __len__(self):
         return len(self.cids)*self.ppi
-
-data = TGGATEDataset("/workspace/patho/preprocess/results/tggate_liver_late")
