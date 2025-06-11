@@ -44,7 +44,10 @@ def get_data(mtpc_main, mtpc_add, tggate) -> Dataset[Image.Image]:
             data += [MTPCVDRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
     if tggate:
         data.append(TGGATEDataset(f"{WORKDIR}/patho/preprocess/results/tggate_liver_late"))
-    data = ConcatDataset(data)
+    if len(data) == 1:
+        return data[0]
+    else:
+        return ConcatDataset(data)
 
 def pretrain(args: Namespace, model: nn.Module):
 
