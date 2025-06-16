@@ -20,6 +20,7 @@ from src.data.mtpc import MTPCRegionDataset, MTPCUHRegionDataset, MTPCVDRegionDa
 from src.data.image import TransformDataset
 from src.data.tggate import TGGATEDataset
 from src.utils.utils import logend
+from src.model.state_modifier import state_modifiers
 
 
 DDIR = f"{WORKDIR}/cheminfodata/mtpc"
@@ -105,13 +106,8 @@ def pretrain(args: Namespace, model: nn.Module):
 
     ## Load weight
     if args.weight is not None and args.weight not in structure2weights[args.structure]:
-        state = torch.load(f"{WORKDIR}/mtpc/pretrain/{args.weight}", weights_only=True)
-        new_state = {}
-        for k, v in state.items():
-            if k.startswith('backbone.'):
-                k = k[9:]
-                new_state[k] = v
-        logger.info(model.backbone.load_state_dict(new_state))
+        state = torch.load(f"{WORKDIR}/mtpc/pretrain/{args.weight}")
+        logger.info(model.backbone.load_state_dict(state_modifiers[args.state_modifier](state)))
 
     # Data augmentation
     transform = model.get_train_transform(f"{rdir}/augment_example", 1)
@@ -119,7 +115,6 @@ def pretrain(args: Namespace, model: nn.Module):
     loader = DataLoader(data, batch_size=args.bsz, shuffle=True, 
         num_workers=args.num_workers, pin_memory=True)
     loader_size = math.ceil(len(data)/args.bsz)
-
 
     # Training
     mean_losses = []

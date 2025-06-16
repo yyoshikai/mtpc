@@ -4,6 +4,7 @@ from glob import glob
 WORKDIR = os.environ.get('WORKDIR', '/workspace')
 sys.path += [f'{WORKDIR}/mtpc', WORKDIR]
 from src.model.backbone import structures
+from src.model.state_dict import state_modifiers
 
 # Argument
 parser = ArgumentParser()
@@ -25,6 +26,7 @@ parser.add_argument("--early-stop", type=int, default=10)
 parser.add_argument("--use-val", action='store_true', help="If True, use validation set for training. The model is evaluated by the final model.")
 parser.add_argument("--structure", choices=structures)
 parser.add_argument('--weight')
+parser.add_argument('--state-modifier', default='bt')
 parser.add_argument('--save-steps', action='store_true')
 parser.add_argument('--save-model', action='store_true')
 parser.add_argument('--save-pred', action='store_true')
@@ -119,12 +121,12 @@ else:
     backbone = get_backbone(args.structure, args.weight if use_weight else None)
     model = PredictModel(backbone, output_mean, output_std)
     if not use_weight and args.weight is not None:
-        whole_state: dict[str, torch.Tensor]
-        whole_state = torch.load(f"{WORKDIR}/mtpc/pretrain/{args.weight}", weights_only=True)
-        state = {}
-        for key, value in whole_state.items():
-            if key.startswith('backbone.'):
-                state[key[9:]] = value
+        # environment to load state dict
+        def exclude_bias_and_norm(p):
+            return p.ndim == 1
+        sys.path.append('/workspace/mtpc/pretrain/VICRegL')
+        state = torch.load(f"{WORKDIR}/mtpc/pretrain/{args.weight}")
+        state = state_modifiers[args.state_modifier](state)
         logger.info(model.backbone.load_state_dict(state))
     
     ## get transform

@@ -103,6 +103,9 @@ if __name__ == '__main__':
     scheme = pargs.get('scheme', 'bt')
 
     backbone = get_backbone(structure, weight=None)
+
+    
+    
     backbone.load_state_dict(get_substate(torch.load(f"{rdir}/models/{args.epoch}.pth", weights_only=True), 'backbone.'))
     if args.remove_last_relu:
         backbone[-2][-1].relu2 = nn.Identity()

@@ -4,6 +4,7 @@ sys.path += [WORKDIR, f"{WORKDIR}/mtpc"]
 from src.model.backbone import structures, get_backbone, structure2weights
 from src.model.barlowtwins import BarlowTwins
 from src.pretrain import pretrain
+from src.model.state_modifier import state_modifiers
 
 DDIR = f"{WORKDIR}/cheminfodata/mtpc"
 
@@ -20,6 +21,7 @@ parser.add_argument('--fp16', action='store_true')
 ## model
 parser.add_argument('--structure', choices=structures, required=True)
 parser.add_argument('--weight')
+parser.add_argument('--state-modifier', choices=list(state_modifiers.keys()), default='bt')
 
 parser.add_argument('--bsz', type=int, default=64)
 parser.add_argument('--lr', type=float, default=0.01)
