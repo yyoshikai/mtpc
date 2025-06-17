@@ -12,24 +12,27 @@ from PIL import Image
 from torch.optim import lr_scheduler as lrs
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [WORKDIR, f"{WORKDIR}/mtpc"]
-from .utils.path import make_dir
-from .utils.logger import get_logger, add_file_handler, add_stream_handler
+from ..utils.path import make_dir
+from ..utils.logger import get_logger, add_file_handler, add_stream_handler
 from src.model.backbone import structure2weights
 from src.optimizer.lars import LARS
+from src.data import SampleDataset
 from src.data.mtpc import MTPCRegionDataset, MTPCUHRegionDataset, MTPCVDRegionDataset
 from src.data.image import TransformDataset
 from src.data.tggate import TGGATEDataset
 from src.utils.utils import logend
-from src.model.state_modifier import state_modifiers
+from src.model.state_dict import state_modifiers
 
 
 DDIR = f"{WORKDIR}/cheminfodata/mtpc"
 
-def get_data(mtpc_main, mtpc_add, tggate) -> Dataset[Image.Image]:
-    
-    data = []
+def get_data(mtpc_main: float, mtpc_add: float, tggate: float, seed: int=0) -> Dataset[Image.Image]:
+    assert all(isinstance(arg, float) for arg in [mtpc_main, mtpc_add, tggate])
+
+    datas = []
     ## main data
-    if mtpc_main:
+    if mtpc_main > 0:
+        data = []
         df_wsi = pd.read_csv(f"{DDIR}/processed/annotation_check0.csv", index_col=0, 
             dtype=str, keep_default_na=False)
         for wsi_name in df_wsi.index:
@@ -37,23 +40,37 @@ def get_data(mtpc_main, mtpc_add, tggate) -> Dataset[Image.Image]:
                 if df_wsi.loc[wsi_name, region_idx] == 'NaN':
                     continue
                 data.append(MTPCRegionDataset(wsi_name, region_idx, 256))
+        data = ConcatDataset(data)
+        if mtpc_main < 1:
+            data = SampleDataset(data, r=mtpc_main, seed=seed)
+        datas.append(data)
     ## additional data
-    if mtpc_add:
+    if mtpc_add > 0:
+        data = []
         for wsi_idx in range(1, 106):
             data += [MTPCUHRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
         for wsi_idx in range(1, 55):
             data += [MTPCVDRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
-    if tggate:
+        data = ConcatDataset(data)
+        if mtpc_add < 1:
+            data = SampleDataset(data, r=mtpc_add, seed=seed)
+        datas.append(data)
+
+    if tggate > 0:
         # temporary process
         if WORKDIR == '/workspace':
             path = f"{WORKDIR}/patho/preprocess/results/tggate_liver_late"
         else:
             path = f"/work/gd43/a97003/cheminfodata/tggates"
-        data.append(TGGATEDataset(path))
-    if len(data) == 1:
-        return data[0]
+        data = TGGATEDataset(path)
+        if tggate < 1:
+            data = SampleDataset(data, r=tggate, seed=seed)
+        datas.append(data)
+
+    if len(datas) == 1:
+        return datas[0]
     else:
-        return ConcatDataset(data)
+        return ConcatDataset(datas)
 
 def pretrain(args: Namespace, model: nn.Module):
 
@@ -152,3 +169,6 @@ def pretrain(args: Namespace, model: nn.Module):
         scheduler.step()
 
         logger.info(f"Epoch {iepoch} ended.")
+
+
+
