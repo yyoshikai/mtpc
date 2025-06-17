@@ -45,6 +45,12 @@ def add_pretrain_arguments(parser: ArgumentParser):
     parser.add_argument('--checkpoint-dir', default='./checkpoint/', type=Path,
                         metavar='DIR', help='path to checkpoint directory')
 
+    # To moritasan
+    parser.add_argument('--z-normalization', choices=['bn', 'mean_std', 'mean_std_unbiased'], default='bn')
+    parser.add_argument('--optimizer', choices=['lars', 'adam'], default='lars')
+    parser.add_argument('--scheduler', choices=['cosine', 'warmup_cosine'], default='warmup_cosine')
+    parser.add_argument('--no-scaler', action='store_true')
+
 def pretrain(args):
     
     dist.init_process_group('nccl' if torch.cuda.is_available() else 'gloo')
@@ -72,9 +78,17 @@ def pretrain(args):
             param_weights.append(param)
     parameters = [{'params': param_weights}, {'params': param_biases}]
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu])
-    optimizer = LARS(parameters, lr=0, weight_decay=args.weight_decay,
-                     weight_decay_filter=True,
-                     lars_adaptation_filter=True)
+
+    if args.optimizer == 'lars':
+        optimizer = LARS(parameters, lr=0, weight_decay=args.weight_decay,
+                        weight_decay_filter=True,
+                        lars_adaptation_filter=True)
+    else:
+        optimizer = optim.Adam(parameters, lr=0)
+    if args.scheduler == 'cosine':
+        get_lr = get_lr_cosine
+    elif args.scheduler == 'warmup_cosine':
+        get_lr = get_lr_warmup_cosine
 
     # automatically resume from checkpoint if it exists
     """
@@ -88,7 +102,7 @@ def pretrain(args):
         start_epoch = 0
     """
     start_epoch = 0
-        
+    # dataset = torchvision.datasets.ImageFolder(args.data / 'train', Transform())
     dataset = get_data(args.mtpc_main, args.mtpc_add, args.tggate)
     dataset = ApplyDataset(dataset, Transform())
 
@@ -102,7 +116,10 @@ def pretrain(args):
     best_epoch_loss = math.inf
 
     start_time = time.time()
-    scaler = amp.GradScaler('cuda')
+    if args.no_scaler:
+        scaler = None
+    else:
+        scaler = amp.GradScaler('cuda')
     
     for epoch in range(start_epoch, args.epochs):
         sampler.set_epoch(epoch)
@@ -110,13 +127,17 @@ def pretrain(args):
         for step, (y1, y2) in enumerate(loader, start=epoch * len(loader)):
             y1 = y1.cuda(gpu, non_blocking=True)
             y2 = y2.cuda(gpu, non_blocking=True)
-            adjust_learning_rate(args, optimizer, loader, step)
+            adjust_learning_rate(args, optimizer, loader, step, get_lr)
             optimizer.zero_grad()
             with amp.autocast('cuda'):
                 loss, on_diag, off_diag = model.forward(y1, y2)
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            if scaler is not None:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
             losses_epoch.append(loss.item())
             if step % args.print_freq == 0:
                 if args.rank == 0:
@@ -129,7 +150,6 @@ def pretrain(args):
                                  time=int(time.time() - start_time))
                     print(json.dumps(stats))
                     print(json.dumps(stats), file=stats_file)
-            break
         if args.rank == 0:
             # save checkpoint
             state = dict(epoch=epoch + 1, model=model.state_dict(),
@@ -149,11 +169,10 @@ def pretrain(args):
         torch.save(model.module.backbone.state_dict(),
                    args.checkpoint_dir / 'resnet50.pth')
 
-
-def adjust_learning_rate(args, optimizer, loader, step):
-    max_steps = args.epochs * len(loader)
-    warmup_steps = 10 * len(loader)
-    base_lr = args.batch_size / 256
+def get_lr_warmup_cosine(step, n_epoch, loader_size, batch_size):
+    max_steps = n_epoch * loader_size
+    warmup_steps = 10 * loader_size
+    base_lr = batch_size / 256
     if step < warmup_steps:
         lr = base_lr * step / warmup_steps
     else:
@@ -162,6 +181,18 @@ def adjust_learning_rate(args, optimizer, loader, step):
         q = 0.5 * (1 + math.cos(math.pi * step / max_steps))
         end_lr = base_lr * 0.001
         lr = base_lr * q + end_lr * (1 - q)
+    return lr
+
+def get_lr_cosine(step, n_epoch, loader_size, batch_size):
+    max_steps = n_epoch * loader_size
+
+    base_lr = batch_size / 256
+    lr = base_lr * 0.5 * (1 + math.cos(math.pi * step / max_steps))
+    return lr
+
+def adjust_learning_rate(args, optimizer, loader, step, get_lr):
+    
+    lr = get_lr(step, args.epochs, len(loader), args.batch_size)   
     optimizer.param_groups[0]['lr'] = lr * args.learning_rate_weights
     optimizer.param_groups[1]['lr'] = lr * args.learning_rate_biases
 
@@ -200,14 +231,23 @@ class BarlowTwins(nn.Module):
         self.projector = nn.Sequential(*layers)
 
         # normalization layer for the representations z1 and z2
-        self.bn = nn.BatchNorm1d(sizes[-1], affine=False)
+        if args.z_normalization == 'bn':
+            self.bn = nn.BatchNorm1d(sizes[-1], affine=False)
+        
 
     def forward(self, y1, y2):
         z1 = self.projector(self.backbone(y1))
         z2 = self.projector(self.backbone(y2))
 
+        if self.args.z_normalization == 'bn':
+            z1 = self.bn(z1)
+            z2 = self.bn(z2)
+        else:
+            z1 = (z1-z1.mean(dim=0))/z1.std(dim=0, unbiased=self.args.z_normalization == 'mean_std_unbiased')
+            z2 = (z2-z2.mean(dim=0))/z2.std(dim=0, unbiased=self.args.z_normalization == 'mean_std_unbiased')
+
         # empirical cross-correlation matrix
-        c = self.bn(z1).T @ self.bn(z2)
+        c = z1.T @ z2
 
         # sum the cross-correlation matrix between all gpus
         c.div_(self.args.batch_size)
