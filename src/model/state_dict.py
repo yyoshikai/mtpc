@@ -44,7 +44,7 @@ def vicregl_modifier(state: dict):
 
 
 state_modifiers: dict[str, Callable[[dict], dict]] = {
-    'null': lambda x: x,
+    'none': lambda x: x,
     'bt': bt_modifier, 
     'barlowtwins': barlowtwins_modifier,
     'vicreg': vicreg_modifier,
