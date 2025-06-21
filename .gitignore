@@ -9,6 +9,5 @@
 __pycache__/
 result
 results
-/pretrain/barlowtwins
 /pretrain/vicreg
 /pretrain/VICRegL
