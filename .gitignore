@@ -5,10 +5,10 @@
 !/predict/n_ak/train.py
 !/predict/n_ak/feature_ml.py
 !/src/*/*
+!/pretrain/VICRegL/*
 
 __pycache__/
 result
 results
 /pretrain/vicreg
-
 
