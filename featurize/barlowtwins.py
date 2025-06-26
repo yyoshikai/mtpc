@@ -6,7 +6,7 @@ from torchvision import transforms
 sys.path.append("/workspace/mtpc")
 from src.model.backbone import get_backbone
 from src.model.state_dict import state_modifiers
-from featurize import featurize_mtpc
+from src.featurize import featurize_mtpc
 
 parser = ArgumentParser()
 parser.add_argument('--sname')
@@ -21,8 +21,8 @@ backbone = get_backbone('resnet50')
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
                                      std=[0.229, 0.224, 0.225])
 transform = transforms.Compose([
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
             transforms.ToTensor(),
             normalize,
 ])

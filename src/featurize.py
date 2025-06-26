@@ -1,5 +1,6 @@
 import sys, os
 from logging import getLogger
+from pathlib import Path
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, ConcatDataset
@@ -9,19 +10,25 @@ sys.path += [WORKDIR, f"{WORKDIR}/mtpc"]
 from src.data.mtpc import MTPCDataset, MTPCUHRegionDataset, MTPCVDRegionDataset
 from src.data.image import TransformDataset
 from src.data import untuple_dataset
-CDIR = os.path.dirname(__file__)
+CDIR = str(Path(__file__).parents[1] / 'featurize')
 
 
 def featurize_mtpc(fname, num_workers, batch_size, backbone, transform):
 
+    out_dir = f"{CDIR}/{fname}"
     logger = getLogger('featurize_mtpc')
+    
+    # check result exists
+    if os.path.exists(f"{out_dir}/feat_all.npy") and os.path.exists(f"{out_dir}/feat_added.npy"):
+        logger.info(f"Already featurized: {out_dir}")
+        return
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logger.info(f"{device=}")
 
     if batch_size is None:
         batch_size = 128
     
-    out_dir = f"{CDIR}/{fname}"
         
     # model
     backbone.to(device)
