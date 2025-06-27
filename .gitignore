@@ -1,6 +1,7 @@
 /*/*/*
 *.ipynb
 !/predict/mlp/train.py
+!/predict/mlp/train_data.py
 !/pretrain/bt/train.py
 !/predict/n_ak/train.py
 !/predict/n_ak/feature_ml.py
