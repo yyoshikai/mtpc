@@ -18,6 +18,10 @@ parser.add_argument("--structure", choices=structures)
 ## split
 parser.add_argument('--split', choices=['n_ak_bin', 'n_ak_bin_noout'], required=True)
 
+## weight
+parser.add_argument('--weight')
+parser.add_argument('--state-modifier', default='bt')
+
 # training
 parser.add_argument("--batch-size", type=int, default=64)
 parser.add_argument("--n-epoch", type=int, default=30)
@@ -26,8 +30,6 @@ parser.add_argument("--tqdm", action='store_true')
 parser.add_argument("--compile", action='store_true')
 parser.add_argument("--duplicate", default='ask')
 parser.add_argument("--early-stop", type=int, default=10)
-parser.add_argument('--weight')
-parser.add_argument('--state-modifier', default='bt')
 parser.add_argument('--save-steps', action='store_true')
 parser.add_argument('--save-model', action='store_true')
 parser.add_argument('--save-pred', action='store_true')
@@ -49,7 +51,7 @@ if from_feature:
     result_dir = f"feature_mlp/{args.fname}/dyskeratosis/data_wsi/{args.split}/0"
 else:
     assert args.studyname is not None
-    result_dir = f"./{args.studyname}/dyskeratosis/data_wsi/{args.split}/0"
+    result_dir = f"finetune/{args.studyname}/dyskeratosis/data_wsi/{args.split}/0"
 if os.path.exists(f"{result_dir}/score.csv") \
         and ((not args.save_steps) or os.path.exists(f"{result_dir}/steps.csv")) \
         and ((not args.save_model) or (len(glob(f"{result_dir}/best_model_*.pth")) >= 1)) \
@@ -120,11 +122,11 @@ else:
     backbone = get_backbone(args.structure, args.weight if use_weight else None)
     model = PredictModel(backbone, output_mean, output_std)
     if not use_weight and args.weight is not None:
-        # environment to load state dict
-        def exclude_bias_and_norm(p):
-            return p.ndim == 1
-        sys.path.append('/workspace/mtpc/pretrain/VICRegL')
-        state = torch.load(f"{WORKDIR}/mtpc/pretrain/{args.weight}")
+        if args.state_modifier == 'VICRegL':
+            sys.path.append(f'{WORKDIR}/mtpc/pretrain/VICRegL')
+            state = torch.load(args.weight)
+        else:
+            state = torch.load(args.weight, weights_only=True)
         state = state_modifiers[args.state_modifier](state)
         logger.info(model.backbone.load_state_dict(state))
     
