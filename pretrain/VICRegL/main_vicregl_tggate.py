@@ -29,7 +29,7 @@ import utils
 
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [f"{WORKDIR}/mtpc"]
-from src.model.state_dict import state_modifiers
+from src.utils import RANDOM_STATE
 
 def get_arguments():
     parser = argparse.ArgumentParser(description="Pretraining with VICRegL", add_help=False)
@@ -96,7 +96,6 @@ def get_arguments():
     
     # weight
     parser.add_argument('--init-weight')
-    parser.add_argument('--init-weight-type', default='barlowtwins', choices=state_modifiers.keys())
 
 
     # Distributed
@@ -106,6 +105,8 @@ def get_arguments():
     parser.add_argument('--dist-url', default='env://',
                         help='url used to set up distributed training')
 
+    parser.add_argument('--seed', type=int)
+
     return parser
 
 
@@ -114,6 +115,9 @@ def main(args):
     init_distributed_mode(args)
     print(args)
     gpu = torch.device(args.device)
+
+    if args.seed is not None:
+        RANDOM_STATE.seed(args.seed*args.world_size+args.rank)
     
     # Ensures that stats_file is initialized when calling evalaute(),
     # even if only the rank 0 process will use it
@@ -133,8 +137,7 @@ def main(args):
 
     model = VICRegL(args).cuda(gpu)
     if args.init_weight is not None:
-        state = torch.load(args.init_weight)
-        load = model.backbone.load_state_dict(state_modifiers[args.init_weight_type](state), strict=False)
+        load = model.backbone.load_state_dict(torch.load(args.init_weight), strict=False)
         print(load)
         print(load, file=stats_file)
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
