@@ -12,12 +12,11 @@ import numpy as np
 
 import torch
 from torch.utils.data import Dataset, StackDataset
-import torchvision.datasets as datasets
+from torch.utils.data.distributed import DistributedSampler
 
 from transforms import MultiCropTrainDataTransform, MultiCropValDataTransform
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path.append(f"{WORKDIR}/mtpc")
-from src.data.tggate import TGGATEDataset
 from src.data import ApplyDataset, ConstantDataset
 from src.pretrain import get_data
 
@@ -59,7 +58,7 @@ def build_loader(args, is_train=True):
     if (not is_train) and args.val_batch_size == -1:
         batch_size = args.batch_size
 
-    sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=is_train)
+    sampler = DistributedSampler(dataset, shuffle=is_train, seed=args.seed or 0)
     per_device_batch_size = batch_size // args.world_size
     loader = torch.utils.data.DataLoader(
         dataset,

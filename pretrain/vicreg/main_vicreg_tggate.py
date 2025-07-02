@@ -17,8 +17,9 @@ import random
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch import nn, optim, amp
 import torch.distributed as dist
+from torch import nn, optim, amp
+from torch.utils.data.distributed import DistributedSampler
 import torchvision
 
 
@@ -92,6 +93,12 @@ def get_arguments():
 
 
 def main(args):
+
+    # If result exists, quit training
+    if os.path.exists(args.exp_dir / 'resnet50.pth'):
+        print(f"{args.exp_dir} has already finished.", flush=True)
+        sys.exit()
+
     torch.backends.cudnn.benchmark = True
     init_distributed_mode(args)
 
@@ -99,7 +106,7 @@ def main(args):
     gpu = torch.device(args.device)
 
     if args.seed is not None:
-        RANDOM_STATE.seed(args.seed*args.world_size+args.rank)
+        RANDOM_STATE.seed(args.seed)
 
     if args.rank == 0:
         args.exp_dir.mkdir(parents=True, exist_ok=True)
@@ -113,7 +120,7 @@ def main(args):
     dataset = get_data(args.mtpc_main, args.mtpc_add, args.tggate)
     dataset = ApplyDataset(dataset, transforms)
 
-    sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=True)
+    sampler = DistributedSampler(dataset, shuffle=True, seed=args.seed or 0)
     assert args.batch_size % args.world_size == 0
     per_device_batch_size = args.batch_size // args.world_size
     loader = torch.utils.data.DataLoader(

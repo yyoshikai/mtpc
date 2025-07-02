@@ -111,13 +111,30 @@ def get_arguments():
 
 
 def main(args):
+
     torch.backends.cudnn.benchmark = True
     init_distributed_mode(args)
+
+    
+    # If result exists, quit training
+    result_exists = [False]
+    if args.rank == 0:
+        if os.path.exists(args.exp_dir / 'model.pth'):
+            checkpoint = torch.load(args.exp_dir / 'model.pth')
+            result_exists[0] = checkpoint['epoch'] == args.epochs
+            if result_exists[0]:
+                print(f"{args.exp_dir} has already finished.", flush=True)
+        else:
+            result_exists[0] = False
+    dist.broadcast_object_list(result_exists, src=0)
+    if result_exists[0]: sys.exit()
+
+
     print(args)
     gpu = torch.device(args.device)
 
     if args.seed is not None:
-        RANDOM_STATE.seed(args.seed*args.world_size+args.rank)
+        RANDOM_STATE.seed(args.seed)
     
     # Ensures that stats_file is initialized when calling evalaute(),
     # even if only the rank 0 process will use it

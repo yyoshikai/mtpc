@@ -20,7 +20,7 @@ import numpy as np
 from torch import nn, optim, amp
 import torch
 import torch.optim as optim
-from torch.utils.data import Dataset
+from torch.utils.data.distributed import DistributedSampler
 import torch.distributed as dist
 import torchvision
 import torchvision.transforms as transforms
@@ -67,16 +67,34 @@ parser.add_argument('--seed', type=int)
 # continuous training
 parser.add_argument('--init-weight')
 
+def check_model_param_sync(model: nn.Module, rank: int, size: int):
+    for key, param in model.state_dict().items():
+        if rank == 0:
+            params = [torch.zeros_like(param) for _ in size]
+            dist.gather(param, params, dst=0)
+            for param1 in params[1:]:
+                assert torch.all(params[0] == param1)
+            print(f"{key} is same.", flush=True)
+        else:
+            dist.gather(param, dst=0)
+
+
 def main():
     
     args = parser.parse_args()
+
+    # If result exists, quit training
+    if os.path.exists(args.checkpoint_dir / 'resnet50.pth'):
+        print(f"{args.checkpoint_dir} has already finished.", flush=True)
+        sys.exit()
+
     dist.init_process_group('nccl' if torch.cuda.is_available() else 'gloo')
     args.rank = dist.get_rank()
     args.world_size = dist.get_world_size()
     gpu = args.rank % torch.cuda.device_count()
 
     if args.seed is not None:
-        RANDOM_STATE.seed(args.seed*args.world_size+args.rank)
+        RANDOM_STATE.seed(args.seed)
 
     if args.rank == 0:
         args.checkpoint_dir.mkdir(parents=True)
@@ -104,6 +122,9 @@ def main():
         else:
             param_weights.append(param)
     parameters = [{'params': param_weights}, {'params': param_biases}]
+
+    # debug: check model parameter
+    check_model_param_sync(model, args.rank, args.world_size)
     
     # load weight
     if args.init_weight is not None:
@@ -123,25 +144,13 @@ def main():
     elif args.scheduler == 'warmup_cosine':
         get_lr = get_lr_warmup_cosine
 
-    # automatically resume from checkpoint if it exists
-    """
-    if (args.checkpoint_dir / 'checkpoint.pth').is_file():
-        ckpt = torch.load(args.checkpoint_dir / 'checkpoint.pth',
-                          map_location='cpu')
-        start_epoch = ckpt['epoch']
-        model.load_state_dict(ckpt['model'])
-        optimizer.load_state_dict(ckpt['optimizer'])
-    else:
-        start_epoch = 0
-    """
     start_epoch = 0
 
 
     # dataset = torchvision.datasets.ImageFolder(args.data / 'train', Transform())
     dataset = get_data(args.mtpc_main, args.mtpc_add, args.tggate)
     dataset = ApplyDataset(dataset, Transform())
-
-    sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+    sampler = DistributedSampler(dataset, seed=args.seed or 0)
     assert args.batch_size % args.world_size == 0
     per_device_batch_size = args.batch_size // args.world_size
     loader = torch.utils.data.DataLoader(
