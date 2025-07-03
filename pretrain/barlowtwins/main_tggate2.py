@@ -29,7 +29,7 @@ WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [f"{WORKDIR}/mtpc"]
 from src.data import ApplyDataset
 from src.pretrain import get_data
-from src.utils import RANDOM_STATE
+from src.utils import ddp_set_random_seed
 
 parser = argparse.ArgumentParser(description='Barlow Twins Training')
 parser.add_argument('--mtpc-main', type=float, default=0.0)
@@ -67,18 +67,6 @@ parser.add_argument('--seed', type=int)
 # continuous training
 parser.add_argument('--init-weight')
 
-def check_model_param_sync(model: nn.Module, rank: int, size: int):
-    for key, param in model.state_dict().items():
-        if rank == 0:
-            params = [torch.zeros_like(param) for _ in size]
-            dist.gather(param, params, dst=0)
-            for param1 in params[1:]:
-                assert torch.all(params[0] == param1)
-            print(f"{key} is same.", flush=True)
-        else:
-            dist.gather(param, dst=0)
-
-
 def main():
     
     args = parser.parse_args()
@@ -94,7 +82,7 @@ def main():
     gpu = args.rank % torch.cuda.device_count()
 
     if args.seed is not None:
-        RANDOM_STATE.seed(args.seed)
+        ddp_set_random_seed(args.seed)
 
     if args.rank == 0:
         args.checkpoint_dir.mkdir(parents=True)
@@ -122,9 +110,6 @@ def main():
         else:
             param_weights.append(param)
     parameters = [{'params': param_weights}, {'params': param_biases}]
-
-    # debug: check model parameter
-    check_model_param_sync(model, args.rank, args.world_size)
     
     # load weight
     if args.init_weight is not None:

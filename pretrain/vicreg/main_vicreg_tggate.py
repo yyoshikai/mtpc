@@ -32,7 +32,7 @@ WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [f"{WORKDIR}/mtpc"]
 from src.pretrain import get_data
 from src.data import ApplyDataset
-from src.utils import RANDOM_STATE
+from src.utils import ddp_set_random_seed
 
 
 def get_arguments():
@@ -106,7 +106,7 @@ def main(args):
     gpu = torch.device(args.device)
 
     if args.seed is not None:
-        RANDOM_STATE.seed(args.seed)
+        ddp_set_random_seed(args.seed)
 
     if args.rank == 0:
         args.exp_dir.mkdir(parents=True, exist_ok=True)

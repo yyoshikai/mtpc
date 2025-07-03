@@ -29,7 +29,7 @@ import utils
 
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [f"{WORKDIR}/mtpc"]
-from src.utils import RANDOM_STATE
+from src.utils import ddp_set_random_seed
 
 def get_arguments():
     parser = argparse.ArgumentParser(description="Pretraining with VICRegL", add_help=False)
@@ -134,7 +134,7 @@ def main(args):
     gpu = torch.device(args.device)
 
     if args.seed is not None:
-        RANDOM_STATE.seed(args.seed)
+        ddp_set_random_seed(args.seed)
     
     # Ensures that stats_file is initialized when calling evalaute(),
     # even if only the rank 0 process will use it
