@@ -116,7 +116,7 @@ def main():
         load = model.backbone.load_state_dict(torch.load(args.init_weight), strict=False)
         print(load)
 
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu])
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu], bucket_cap_mb=100)
 
     if args.optimizer == 'lars':
         optimizer = LARS(parameters, lr=0, weight_decay=args.weight_decay,

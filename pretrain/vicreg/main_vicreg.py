@@ -105,7 +105,7 @@ def main(args):
 
     model = VICReg(args).cuda(gpu)
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu])
+    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu], bucket_cap_mb=100)
     optimizer = LARS(
         model.parameters(),
         lr=0,
