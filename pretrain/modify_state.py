@@ -10,7 +10,7 @@ from src.model.state_dict import state_modifiers
 from src.utils.time import wtqdm
 logger = get_logger(stream=True)
 
-for mpath in (pbar:=wtqdm(glob(f"./results/**/model.pth", recursive=True))):
+for mpath in sorted(glob(f"./results/**/model.pth", recursive=True)):
     rdir = os.path.dirname(mpath)
     scheme = get_scheme(rdir)
     out_path = f"{rdir}/resnet50.pth"
@@ -27,13 +27,11 @@ for mpath in (pbar:=wtqdm(glob(f"./results/**/model.pth", recursive=True))):
     args, _ = parser.parse_known_args(argv)
 
     ## load state
-    pbar.start('load_state')
     sys.path.append(f"{WORKDIR}/mtpc/pretrain/VICRegL")
     state = torch.load(mpath)
     sys.path = sys.path[:-1]
 
     ## check epoch
-    pbar.start('check_epoch')
     epoch = state['epoch']
     if epoch != args.epochs:
         logger.info(f"Not final checkpoint: {mpath}({epoch})")
@@ -41,6 +39,5 @@ for mpath in (pbar:=wtqdm(glob(f"./results/**/model.pth", recursive=True))):
     
     # modify
     logger.info(f"Modified: {mpath}({epoch})")
-    pbar.start('save')
     state = state_modifiers[scheme](state)
     torch.save(state, out_path)
