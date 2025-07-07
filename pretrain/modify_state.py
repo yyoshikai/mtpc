@@ -10,46 +10,37 @@ from src.model.state_dict import state_modifiers
 from src.utils.time import wtqdm
 logger = get_logger(stream=True)
 
-for mpath in (pbar:=wtqdm(glob(f"{WORKDIR}/mtpc/pretrain/results/**/model.pth", recursive=True))):
+for mpath in (pbar:=wtqdm(glob(f"./results/**/model.pth", recursive=True))):
     rdir = os.path.dirname(mpath)
     scheme = get_scheme(rdir)
     out_path = f"{rdir}/resnet50.pth"
     
-    if scheme is None: continue
+    if scheme != 'VICRegL': continue
     if os.path.exists(out_path):
+        logger.info(f"Already processed: {mpath}")
         continue
 
     # parse args & check epoch
-    argv = get_argv(rdir)
-    if scheme == 'VICRegL': argv = argv[1:]
+    argv = get_argv(rdir)[1:]
     parser = ArgumentParser()
     parser.add_argument('--epochs', type=int)
     args, _ = parser.parse_known_args(argv)
 
     ## load state
     pbar.start('load_state')
-    match scheme:
-        case 'barlowtwins':
-            state = torch.load(mpath, weights_only=True)
-        case 'vicreg':
-            def exclude_bias_and_norm(p):
-                return p.ndim == 1
-            state = torch.load(mpath)
-        case 'VICRegL':
-            sys.path.append(f"{WORKDIR}/mtpc/pretrain/VICRegL")
-            state = torch.load(mpath)
-            sys.path = sys.path[:-1]
-        case _:
-            raise ValueError(f"Unknown {scheme=}")
+    sys.path.append(f"{WORKDIR}/mtpc/pretrain/VICRegL")
+    state = torch.load(mpath)
+    sys.path = sys.path[:-1]
 
     ## check epoch
     pbar.start('check_epoch')
     epoch = state['epoch']
     if epoch != args.epochs:
-        print(f"{mpath}({epoch}) is not checkpoint of final epoch({args.epochs}).")
+        logger.info(f"Not final checkpoint: {mpath}({epoch})")
         continue
     
     # modify
+    logger.info(f"Modified: {mpath}({epoch})")
     pbar.start('save')
     state = state_modifiers[scheme](state)
     torch.save(state, out_path)
