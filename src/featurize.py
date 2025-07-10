@@ -3,17 +3,18 @@ from logging import getLogger
 from pathlib import Path
 import numpy as np
 import torch
+from tqdm import tqdm as _tqdm
 from torch.utils.data import DataLoader, ConcatDataset
-from tqdm import tqdm
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [WORKDIR, f"{WORKDIR}/mtpc"]
 from src.data.mtpc import MTPCDataset, MTPCUHRegionDataset, MTPCVDRegionDataset
 from src.data.image import TransformDataset
 from src.data import untuple_dataset
+from src.utils.time import wtqdm
 CDIR = str(Path(__file__).parents[1] / 'featurize')
 
 
-def featurize_mtpc(fname, num_workers, batch_size, backbone, transform):
+def featurize_mtpc(fname, num_workers, batch_size, backbone, transform, tqdm=True):
 
     out_dir = f"{CDIR}/{fname}"
     logger = getLogger('featurize_mtpc')
@@ -42,7 +43,8 @@ def featurize_mtpc(fname, num_workers, batch_size, backbone, transform):
             num_workers=num_workers, prefetch_factor=None if num_workers==0 else 10)
     feats = []
     with torch.inference_mode():
-        for batch in tqdm(loader):
+        for batch in (pbar:=(wtqdm(loader) if tqdm else loader)):
+            if tqdm: pbar.start('featurize')
             feats.append(backbone(batch.to(device)).cpu().numpy())
 
     feat = np.concatenate(feats, axis=0)
@@ -67,7 +69,8 @@ def featurize_mtpc(fname, num_workers, batch_size, backbone, transform):
 
     feats = []
     with torch.no_grad():
-        for batch in tqdm(loader):
+        for batch in (pbar:=(wtqdm(loader) if tqdm else loader)):
+            if tqdm: pbar.start('featurize')
             feat = backbone(batch.to(device)).cpu().numpy()
             feats.append(feat)
     feat = np.concatenate(feats, axis=0)
