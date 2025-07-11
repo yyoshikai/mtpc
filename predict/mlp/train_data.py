@@ -4,7 +4,7 @@ from glob import glob
 WORKDIR = os.environ.get('WORKDIR', '/workspace')
 sys.path += [f'{WORKDIR}/mtpc', WORKDIR]
 from src.model.backbone import structures
-from src.model.state_dict import state_modifiers
+from src.utils import RANDOM_STATE
 
 # Argument
 parser = ArgumentParser()
@@ -20,7 +20,6 @@ parser.add_argument('--split', choices=['n_ak_bin', 'n_ak_bin_noout'], required=
 
 ## weight
 parser.add_argument('--weight')
-parser.add_argument('--state-modifier', default='bt')
 
 # training
 parser.add_argument("--batch-size", type=int, default=64)
@@ -28,13 +27,13 @@ parser.add_argument("--n-epoch", type=int, default=30)
 parser.add_argument("--num-workers", type=int, default=None)
 parser.add_argument("--tqdm", action='store_true')
 parser.add_argument("--compile", action='store_true')
-parser.add_argument("--duplicate", default='ask')
 parser.add_argument("--early-stop", type=int, default=10)
 parser.add_argument('--save-steps', action='store_true')
 parser.add_argument('--save-model', action='store_true')
 parser.add_argument('--save-pred', action='store_true')
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--optimizer', default='adam')
+parser.add_argument('--seed', type=int)
 args = parser.parse_args()
 ## set default args
 from_feature = args.fname is not None
@@ -75,6 +74,9 @@ from src.data import TensorDataset
 # Environment
 logger = get_logger()
 add_stream_handler(logger)
+
+## seed
+RANDOM_STATE.seed(args.seed)
         
 # Data
 ## target
@@ -118,16 +120,10 @@ if from_feature:
     input_size = X_main.shape[1]
     model = MLP(input_size, output_mean, output_std)
 else:
-    use_weight = args.weight in structure2weights[args.structure] and args.weight is not None
-    backbone = get_backbone(args.structure, args.weight if use_weight else None)
+    backbone = get_backbone(args.structure)
     model = PredictModel(backbone, output_mean, output_std)
-    if not use_weight and args.weight is not None:
-        if args.state_modifier == 'VICRegL':
-            sys.path.append(f'{WORKDIR}/mtpc/pretrain/VICRegL')
-            state = torch.load(args.weight)
-        else:
-            state = torch.load(args.weight, weights_only=True)
-        state = state_modifiers[args.state_modifier](state)
+    if args.weight is not None:
+        state = torch.load(args.weight, weights_only=True)
         logger.info(model.backbone.load_state_dict(state))
     
     ## get transform
@@ -143,7 +139,7 @@ print(f"{len(train_data)=}, {len(test_data)=}")
 train_loader = DataLoader(train_data, args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
 test_loader = DataLoader(test_data, args.batch_size*2, shuffle=False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
 # Directory
-result_dir = make_dir(result_dir, args.duplicate)
+result_dir = make_dir(result_dir, 'overwrite')
 with open(f"{result_dir}/args.yaml", 'w') as f:
     yaml.dump(vars(args), f)
 
