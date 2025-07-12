@@ -60,7 +60,7 @@ if os.path.exists(f"{result_dir}/score.csv") \
 
 # import
 import yaml
-import pandas as pd, numpy as np, torch, torch.nn as nn
+import pandas as pd, numpy as np, torch
 from torch.utils.data import StackDataset, Subset, DataLoader, ConcatDataset
 from src.utils.logger import add_stream_handler, get_logger
 from src.utils.path import make_dir
@@ -68,7 +68,7 @@ from src.data import untuple_dataset
 from src.data.mtpc import MTPCUHRegionDataset, MTPCVDRegionDataset, MTPCDataset
 from src.data.image import TransformDataset
 from src.model import PredictModel, MLP
-from src.model.backbone import get_backbone, structure2weights
+from src.model.backbone import get_backbone
 from src.data import TensorDataset
 
 # Environment

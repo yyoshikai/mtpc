@@ -111,8 +111,8 @@ def predict_all(fname, tgts: list[str]=default_tgts, units: list[str]=default_un
             X_test = X_test[mask_test]
             y_test = y_test[mask_test]
 
-        result_dir = f"feature_linear/{fname}/{tgt}/{unit}/{str_tgt}/0" 
-        predict_patch(X_train, X_test, y_train, y_test, is_reg=True, result_dir=result_dir)
+            result_dir = f"feature_linear/{fname}/{tgt}/{unit}/{str_tgt}/0" 
+            predict_patch(X_train, X_test, y_train, y_test, is_reg=True, result_dir=result_dir)
 
     for tgt in tgts:
 
