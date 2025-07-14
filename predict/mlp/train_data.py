@@ -74,6 +74,10 @@ from src.data import TensorDataset
 # Environment
 logger = get_logger()
 add_stream_handler(logger)
+## Directory
+result_dir = make_dir(result_dir, 'overwrite')
+with open(f"{result_dir}/args.yaml", 'w') as f:
+    yaml.dump(vars(args), f)
 
 ## seed
 RANDOM_STATE.seed(args.seed)
@@ -99,6 +103,22 @@ if from_feature:
 
     X_add = np.load(f"{WORKDIR}/mtpc/featurize/{args.fname}/feat_added.npy").astype(np.float32)
     test_input_data = TensorDataset(X_add[test_mask])
+
+    ### check nan
+    nf_path = f"{result_dir}/nonfinite_params.txt"
+    n_nf = 0
+    with open(nf_path, 'w') as f:
+        for param, name in zip([X_main, X_add, y_train, y_test], 
+                ['X_train', 'X_test', 'y_train', 'y_test']):
+            if np.any(~np.isfinite(param)):
+                logger.warning(f"{name} contains nonfinite values.")
+                f.write(name+'\n')
+                n_nf += 1
+    if n_nf > 0: 
+        sys.exit()
+    else:
+        os.remove(nf_path)
+    
 else:    
     data = MTPCDataset(256)
     train_input_data, _ = untuple_dataset(data, 2)
@@ -138,10 +158,6 @@ prefetch_factor = 5 if args.num_workers > 0 else None
 print(f"{len(train_data)=}, {len(test_data)=}")
 train_loader = DataLoader(train_data, args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
 test_loader = DataLoader(test_data, args.batch_size*2, shuffle=False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
-# Directory
-result_dir = make_dir(result_dir, 'overwrite')
-with open(f"{result_dir}/args.yaml", 'w') as f:
-    yaml.dump(vars(args), f)
 
 from src.predict import predict
 predict(model, True, result_dir, args.n_epoch, args.early_stop, args.lr, 
