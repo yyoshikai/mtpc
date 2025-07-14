@@ -15,20 +15,27 @@ def predict_patch(X_train: np.ndarray, X_test: np.ndarray,
         y_train: np.ndarray, y_test: np.ndarray, 
         is_reg: bool, result_dir: str):
 
+
     logger = get_logger('predict_patch')
     if os.path.exists(f"{result_dir}/score.csv") \
             and os.path.exists(f"{result_dir}/model.pkl"):
         logger.info(f"all results of {result_dir} already exists.")
         return
-    logger.info(f"predicting {result_dir}...")
     
-    for param, name in zip([X_train, X_test, y_train, y_test], 
-            ['X_train', 'X_test', 'y_train', 'y_test']):
-        if np.any(~np.isfinite(param)):
-            logger.warning(f"{name} contains nonfinite values.")
-            return
-
+    logger.info(f"predicting {result_dir}...")
     os.makedirs(result_dir, exist_ok=True)
+
+    # check if X and y are finite
+    nf_path = f"{result_dir}/nonfinite_params.txt"
+    n_nf = 0
+    with open(nf_path, 'w') as f:
+        for param, name in zip([X_train, X_test, y_train, y_test], 
+                ['X_train', 'X_test', 'y_train', 'y_test']):
+            if np.any(~np.isfinite(param)):
+                logger.warning(f"{name} contains nonfinite values.")
+                f.write(param+'\n')
+                n_nf += 1
+    if n_nf == 0: os.remove(nf_path)
     
     if is_reg:
         model = cuml.LinearRegression(copy_X=True)
