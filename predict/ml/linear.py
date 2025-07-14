@@ -35,8 +35,11 @@ def predict_patch(X_train: np.ndarray, X_test: np.ndarray,
                 logger.warning(f"{name} contains nonfinite values.")
                 f.write(param+'\n')
                 n_nf += 1
-    if n_nf == 0: os.remove(nf_path)
-    
+    if n_nf > 0: 
+        return
+    else:
+        os.remove(nf_path)
+
     if is_reg:
         model = cuml.LinearRegression(copy_X=True)
         model.fit(X_train.copy(), y_train.copy())
