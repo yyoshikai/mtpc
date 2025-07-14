@@ -33,7 +33,7 @@ def predict_patch(X_train: np.ndarray, X_test: np.ndarray,
                 ['X_train', 'X_test', 'y_train', 'y_test']):
             if np.any(~np.isfinite(param)):
                 logger.warning(f"{name} contains nonfinite values.")
-                f.write(param+'\n')
+                f.write(name+'\n')
                 n_nf += 1
     if n_nf > 0: 
         return
