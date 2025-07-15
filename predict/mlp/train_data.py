@@ -132,6 +132,7 @@ else:
     test_input_data = ConcatDataset(datas)
     test_input_data = Subset(test_input_data, np.where(test_mask)[0])
 
+
 # model
 output_mean = np.mean(y_train)
 output_std = np.std(y_train)
@@ -144,6 +145,21 @@ else:
     model = PredictModel(backbone, output_mean, output_std)
     if args.weight is not None:
         state = torch.load(args.weight, weights_only=True)
+
+        ## check nan
+        nf_path = f"{result_dir}/nonfinite_params.txt"
+        n_nf = 0
+        with open(nf_path, 'w') as f:
+            for name, param in state.items():
+                if torch.any(~torch.isfinite(param)):
+                    logger.warning(f"{name} contains nonfinite values.")
+                    f.write(name+'\n')
+                    n_nf += 1
+        if n_nf > 0: 
+            sys.exit()
+        else:
+            os.remove(nf_path)
+
         logger.info(model.backbone.load_state_dict(state))
     
     ## get transform
