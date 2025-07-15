@@ -6,14 +6,16 @@ from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score, average_precision_score, \
         mean_squared_error, mean_absolute_error, r2_score
 import cuml
+import cupy
 
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [f'{WORKDIR}', f'{WORKDIR}/mtpc']
 from src.utils.logger import get_logger, add_stream_handler
+from src.utils import set_random_seed
 
 def predict_patch(X_train: np.ndarray, X_test: np.ndarray, 
         y_train: np.ndarray, y_test: np.ndarray, 
-        is_reg: bool, result_dir: str):
+        is_reg: bool, result_dir: str, seed: Optional[int]):
 
 
     logger = get_logger('predict_patch')
@@ -39,6 +41,11 @@ def predict_patch(X_train: np.ndarray, X_test: np.ndarray,
         return
     else:
         os.remove(nf_path)
+
+    # Random state
+    if seed is not None:
+        set_random_seed(seed)
+        cupy.random.seed(seed)
 
     if is_reg:
         model = cuml.LinearRegression(copy_X=True)
@@ -83,7 +90,7 @@ default_tgts = list(tgt2str_tgts.keys())
 reg_tgts = ['n_ak', 'area_ak', 'bio', 'acantholysis', 'dyskeratosis']
 add_tgts = ['bio', 'acantholysis', 'dyskeratosis']
 
-def predict_all(fname, tgts: list[str]=default_tgts, units: list[str]=default_units):
+def predict_all(fname, tgts: list[str]=default_tgts, units: list[str]=default_units, seed=None):
 
     # check args
     assert set(tgts) <= set(default_tgts)
@@ -122,7 +129,7 @@ def predict_all(fname, tgts: list[str]=default_tgts, units: list[str]=default_un
             y_test = y_test[mask_test]
 
             result_dir = f"feature_linear/{fname}/{tgt}/{unit}/{str_tgt}/0" 
-            predict_patch(X_train, X_test, y_train, y_test, is_reg=True, result_dir=result_dir)
+            predict_patch(X_train, X_test, y_train, y_test, is_reg=True, result_dir=result_dir, seed=seed)
 
     for tgt in tgts:
 
@@ -171,6 +178,7 @@ if __name__ == '__main__':
     parser.add_argument('--fnames', nargs='+')
     parser.add_argument('--tgts', nargs='*', default=default_tgts)
     parser.add_argument('--units', nargs='*', default=default_units)
+    parser.add_argument('--seed', type=int)
     args = parser.parse_args()
     for fname in args.fnames:
-        predict_all(fname, args.tgts, args.units)
+        predict_all(fname, args.tgts, args.units, args.seed)

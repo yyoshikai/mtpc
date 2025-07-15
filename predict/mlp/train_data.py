@@ -64,6 +64,7 @@ import pandas as pd, numpy as np, torch
 from torch.utils.data import StackDataset, Subset, DataLoader, ConcatDataset
 from src.utils.logger import add_stream_handler, get_logger
 from src.utils.path import make_dir
+from src.utils import set_random_seed
 from src.data import untuple_dataset 
 from src.data.mtpc import MTPCUHRegionDataset, MTPCVDRegionDataset, MTPCDataset
 from src.data.image import TransformDataset
@@ -80,7 +81,7 @@ with open(f"{result_dir}/args.yaml", 'w') as f:
     yaml.dump(vars(args), f)
 
 ## seed
-RANDOM_STATE.seed(args.seed)
+set_random_seed(args.seed)
         
 # Data
 ## target
@@ -172,6 +173,7 @@ test_data = StackDataset(test_input_data, test_target_data)
 
 prefetch_factor = 5 if args.num_workers > 0 else None
 print(f"{len(train_data)=}, {len(test_data)=}")
+
 train_loader = DataLoader(train_data, args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
 test_loader = DataLoader(test_data, args.batch_size*2, shuffle=False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
 

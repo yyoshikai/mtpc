@@ -7,6 +7,7 @@ WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [f"{WORKDIR}/mtpc"]
 from src.featurize import featurize_mtpc
 from src.model.backbone import get_backbone
+from src.utils import set_random_seed
 getLogger('tifffile').disabled = True
 
 parser = ArgumentParser()
@@ -14,6 +15,7 @@ parser.add_argument('--name', help='... of pretrain/results/.../resnet50.pth')
 parser.add_argument('--num-workers', type=int, default=1)
 parser.add_argument('--batch-size', type=int, default=512)
 parser.add_argument('--tqdm', action='store_true')
+parser.add_argument('--seed', type=int)
 args = parser.parse_args()
 
 out_dir = f"{WORKDIR}/mtpc/featurize/{args.name}"
@@ -35,4 +37,6 @@ transform = T.Compose([
                     std=[0.229, 0.224, 0.225]), 
 ])
 backbone.load_state_dict(torch.load(model_path, weights_only=True))
+if args.seed is not None: 
+    set_random_seed(args.seed)
 featurize_mtpc(args.name, args.num_workers, args.batch_size, backbone, transform, args.tqdm)
