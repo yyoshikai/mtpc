@@ -161,6 +161,7 @@ def main(args):
         lars_adaptation_filter=exclude_bias_and_norm,
     )
 
+    """
     if (args.exp_dir / "model.pth").is_file():
         if args.rank == 0:
             print("resuming from checkpoint")
@@ -170,7 +171,9 @@ def main(args):
         optimizer.load_state_dict(ckpt["optimizer"])
     else:
         start_epoch = 0
-
+    """
+    start_epoch = 0
+        
     start_time = last_logging = time.time()
     scaler = amp.GradScaler('cuda')
     for epoch in range(start_epoch, args.epochs):
