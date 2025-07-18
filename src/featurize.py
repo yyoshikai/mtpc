@@ -13,6 +13,19 @@ from src.data import untuple_dataset
 from src.utils.time import wtqdm
 CDIR = str(Path(__file__).parents[1] / 'featurize')
 
+base_main_data = MTPCDataset(256)
+base_main_data = untuple_dataset(base_main_data, 2)[0]
+
+add_datas = []
+for wsi_idx in range(1, 106):
+    for region_idx in range(1, 4):
+        data = MTPCUHRegionDataset(wsi_idx, region_idx)
+        add_datas.append(data)
+for wsi_idx in range(1, 55):
+    for region_idx in range(1, 4):
+        data = MTPCVDRegionDataset(wsi_idx, region_idx)
+        add_datas.append(data)
+base_add_data = ConcatDataset(add_datas)
 
 def featurize_mtpc(fname, num_workers, batch_size, backbone, transform, tqdm=True):
 
@@ -36,10 +49,8 @@ def featurize_mtpc(fname, num_workers, batch_size, backbone, transform, tqdm=Tru
     backbone.eval()
 
     # main data
-    dataset = MTPCDataset(256)
-    dataset = untuple_dataset(dataset, 2)[0]
-    dataset = TransformDataset(dataset, transform)
-    loader = DataLoader(dataset, shuffle=False, batch_size=batch_size, 
+    main_data = TransformDataset(base_main_data, transform)
+    loader = DataLoader(main_data, shuffle=False, batch_size=batch_size, 
             num_workers=num_workers, prefetch_factor=None if num_workers==0 else 10)
     feats = []
     with torch.inference_mode():
@@ -52,19 +63,8 @@ def featurize_mtpc(fname, num_workers, batch_size, backbone, transform, tqdm=Tru
     np.save(f"{out_dir}/feat_all.npy", feat)
     
     # sub data
-    datas = []
-    for wsi_idx in range(1, 106):
-        for region_idx in range(1, 4):
-            data = MTPCUHRegionDataset(wsi_idx, region_idx)
-            datas.append(data)
-    for wsi_idx in range(1, 55):
-        for region_idx in range(1, 4):
-            data = MTPCVDRegionDataset(wsi_idx, region_idx)
-            datas.append(data)
-    dataset = ConcatDataset(datas)
-
-    dataset = TransformDataset(dataset, transform)
-    loader = DataLoader(dataset, shuffle=False, batch_size=batch_size, 
+    add_data = TransformDataset(base_add_data, transform)
+    loader = DataLoader(add_data, shuffle=False, batch_size=batch_size, 
             num_workers=num_workers, prefetch_factor=None if num_workers==0 else 10)
 
     feats = []
