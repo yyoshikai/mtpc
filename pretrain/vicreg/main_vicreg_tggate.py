@@ -12,7 +12,8 @@ import math
 import os
 import sys
 import time
-import random
+import warnings
+from logging import getLogger
 
 import numpy as np
 import torch
@@ -33,6 +34,7 @@ sys.path += [f"{WORKDIR}/mtpc"]
 from src.pretrain import get_data
 from src.data import ApplyDataset
 from src.utils import ddp_set_random_seed
+from src.utils.logger import get_logger, add_stream_handler
 
 
 def get_arguments():
@@ -98,6 +100,14 @@ def main(args):
     if os.path.exists(args.exp_dir / 'resnet50.pth'):
         print(f"{args.exp_dir} has already finished.", flush=True)
         sys.exit()
+
+    def showwarning_traceback(message, category, filename, lineno, file=None, line=None):
+        logger = getLogger('warning')
+        s = warnings.formatwarning(message, category, filename, lineno, line)
+        logger.warning(s, stack_info=True)
+    warnings.showwarning = showwarning_traceback
+    logger = get_logger('')
+    add_stream_handler(logger)
 
     torch.backends.cudnn.benchmark = True
     init_distributed_mode(args)
