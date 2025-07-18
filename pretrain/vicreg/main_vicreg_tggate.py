@@ -105,6 +105,9 @@ def main(args):
 
     if args.seed is not None:
         ddp_set_random_seed(args.seed)
+
+    # armだと発生する警告らしい。問題なさそうだが, 大量(workerごと)に表示されるので無視する。
+    # 参考: https://github.com/pytorch/vision/issues/8574
     warnings.filterwarnings('ignore', "np_h += np.array(hue_factor * 255).astype(np.uint8)", RuntimeWarning)
 
     if args.rank == 0:
