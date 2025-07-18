@@ -101,15 +101,6 @@ def main(args):
         print(f"{args.exp_dir} has already finished.", flush=True)
         sys.exit()
 
-    def showwarning_traceback(message, category, filename, lineno, file=None, line=None):
-        logger = getLogger('warning')
-        s = warnings.formatwarning(message, category, filename, lineno, line)
-        logger.warning(s, stack_info=True)
-    warnings.showwarning = showwarning_traceback
-    logger = get_logger('')
-    add_stream_handler(logger)
-
-    torch.backends.cudnn.benchmark = True
     init_distributed_mode(args)
 
     print(args)
@@ -148,7 +139,7 @@ def main(args):
         backbone_weights = None
     model = VICReg(args, backbone_weights).cuda(gpu)
     if args.init_weight is not None:
-        load = model.backbone.load_state_dict(torch.load(args.init_weight), strict=False)
+        load = model.backbone.load_state_dict(torch.load(args.init_weight, weights_only=True), strict=False)
         print(load)
 
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
