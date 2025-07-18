@@ -13,9 +13,6 @@ import os
 import sys
 import time
 import warnings
-from logging import getLogger
-
-import numpy as np
 import torch
 import torch.nn.functional as F
 import torch.distributed as dist
@@ -34,7 +31,6 @@ sys.path += [f"{WORKDIR}/mtpc"]
 from src.pretrain import get_data
 from src.data import ApplyDataset
 from src.utils import ddp_set_random_seed
-from src.utils.logger import get_logger, add_stream_handler
 
 
 def get_arguments():
@@ -106,8 +102,10 @@ def main(args):
     print(args)
     gpu = torch.device(args.device)
 
+
     if args.seed is not None:
         ddp_set_random_seed(args.seed)
+    warnings.filterwarnings('ignore', "np_h += np.array(hue_factor * 255).astype(np.uint8)", RuntimeWarning)
 
     if args.rank == 0:
         args.exp_dir.mkdir(parents=True, exist_ok=True)
