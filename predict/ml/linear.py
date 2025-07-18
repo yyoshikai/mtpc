@@ -17,7 +17,6 @@ def predict_patch(X_train: np.ndarray, X_test: np.ndarray,
         y_train: np.ndarray, y_test: np.ndarray, 
         is_reg: bool, result_dir: str, seed: Optional[int]):
 
-
     logger = get_logger('predict_patch')
     if os.path.exists(f"{result_dir}/score.csv") \
             and os.path.exists(f"{result_dir}/model.pkl"):
