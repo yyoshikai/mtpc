@@ -15,7 +15,7 @@ parser = ArgumentParser()
 parser.add_argument('--num-workers', type=int, default=1)
 parser.add_argument('--batch-size', type=int, default=512)
 parser.add_argument('--tqdm', action='store_true')
-parser.add_argument('--seed', nargs='+', default=[0,1,2,3,4])
+parser.add_argument('--seed', nargs='+', default=[0,1,2,3,4], type=int)
 args = parser.parse_args()
 
 backbone = get_backbone('resnet50')
