@@ -95,12 +95,7 @@ def main():
     torch.cuda.set_device(gpu)
     torch.backends.cudnn.benchmark = True
 
-    if args.init_weight == 'imagenet':
-        backbone_weights = torchvision.models.ResNet50_Weights.IMAGENET1K_V2
-        args.init_weight = None
-    else:
-        backbone_weights = None
-    model = BarlowTwins(args, backbone_weights=backbone_weights).cuda(gpu)
+    model = BarlowTwins(args, backbone_weights=None).cuda(gpu)
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     param_weights = []
     param_biases = []
@@ -228,10 +223,10 @@ def off_diagonal(x):
 
 
 class BarlowTwins(nn.Module):
-    def __init__(self, args, backbone_weights=None):
+    def __init__(self, args):
         super().__init__()
         self.args = args
-        self.backbone = torchvision.models.resnet50(zero_init_residual=True, weights=backbone_weights)
+        self.backbone = torchvision.models.resnet50(zero_init_residual=True)
         self.backbone.fc = nn.Identity()
 
         # projector

@@ -1,4 +1,5 @@
 import sys, os, math
+import itertools as itr
 from glob import glob
 from typing import Optional
 from logging import getLogger
@@ -64,11 +65,17 @@ def predict(model: nn.Module,
 ):
 
     # Result exists?
-    if os.path.exists(f"{result_dir}/score.csv") \
-            and ((not save_steps) or os.path.exists(f"{result_dir}/steps.csv")) \
-            and ((not save_model) or (len(glob(f"{result_dir}/best_model_*.pth")) >= 1)) \
-            and ((not save_pred) or os.path.exists(f"{result_dir}/preds.csv")):
-        print(f"All result exists for {result_dir}")
+    result_names = ['score.csv', 'train_score.csv']
+    if val_loader is not None:
+        result_names += ['val_score.csv', 'train_val_score.csv']
+    if save_steps: result_names.append('steps.csv')
+    if save_model: result_names.append('best_model_*.pth')
+    if save_pred:
+        result_names += ['preds.csv', 'train_preds.csv']
+        if val_loader is not None:
+            result_names += ['val_preds.csv', 'train_val_preds.csv']
+    if all(len(glob(f"{result_dir}/{name}")) > 0 for name in result_names):
+        print(f"All results exist for {result_dir}")
         return
 
     # Environment
@@ -174,37 +181,54 @@ def predict(model: nn.Module,
                 best_epoch = epoch
 
     # Evaluate for test data
-    logger.info(f"Evaluating for test_data with best model ({best_epoch})...")
+    logger.info(f"Evaluating with best model ({best_epoch})...")
     if val_loader is not None:
         model.load_state_dict(torch.load(f"{result_dir}/best_model_{best_epoch}.pth", weights_only=True))
     model.eval()
-    preds = []
-    targets = []
-    with torch.inference_mode():
-        for input, target in context(test_loader):
-            pred = model(input.to(device))
-            preds.append(pred.cpu().numpy())
-            targets.append(target.numpy())
-    preds = np.concatenate(preds)
-    targets = np.concatenate(targets)
-    if save_pred:
-        pd.DataFrame({'pred': preds}).to_csv(f"{result_dir}/preds.csv", index=False)
-    if reg:
-        res = spearmanr(preds, targets)
-        df = pd.DataFrame({'score': {
-            'RMSE': mean_squared_error(targets, preds)**0.5,
-            'MAE': mean_absolute_error(targets, preds),
-            'R^2': r2_score(targets, preds),
-            'rho': res.statistic,
-            'p_rho': res.pvalue
-        }})
-    else:
-        targets = targets.astype(int)
-        df = pd.DataFrame({'score': {
-            'AUROC': roc_auc_score(targets, preds),
-            'AUPR': average_precision_score(targets, preds),
-        }})
-    df.to_csv(f"{result_dir}/score.csv")
+
+    train_preds = train_targets = val_preds = val_targets = None
+    for loader, split in zip([train_loader, val_loader, None, test_loader], ['train_', 'val_', 'train_val_', '']):
+
+        if split == 'train_val_':
+            if val_preds is None: continue
+            targets = np.concatenate([train_targets, val_targets])
+            preds = np.concatenate([train_preds, val_preds])
+        else:
+            if loader is None: continue
+            preds = []
+            targets = []
+            with torch.inference_mode():
+                for input, target in context(loader):
+                    pred = model(input.to(device))
+                    preds.append(pred.cpu().numpy())
+                    targets.append(target.numpy())
+            preds = np.concatenate(preds)
+            targets = np.concatenate(targets)
+            if split == 'train_':
+                train_preds, train_targets = preds, targets
+            elif split == 'val_':
+                val_preds, val_targets = preds, targets
+        
+        if save_pred:
+            pd.DataFrame({'pred': preds, 'target': targets}).to_csv(f"{result_dir}/{split}preds.csv", index=False)
+        if reg:
+            res = spearmanr(preds, targets)
+            df = pd.DataFrame({'score': {
+                'RMSE': mean_squared_error(targets, preds)**0.5,
+                'MAE': mean_absolute_error(targets, preds),
+                'R^2': r2_score(targets, preds),
+                'rho': res.statistic,
+                'p_rho': res.pvalue
+            }})
+        else:
+            targets = targets.astype(int)
+            df = pd.DataFrame({'score': {
+                'AUROC': roc_auc_score(targets, preds),
+                'AUPR': average_precision_score(targets, preds),
+            }})
+        df.to_csv(f"{result_dir}/{split}score.csv")
+
+    # Remove best model
     if not save_model:
         os.remove(f"{result_dir}/best_model_{best_epoch}.pth")
     logger.info(f"training {result_dir} finished!")

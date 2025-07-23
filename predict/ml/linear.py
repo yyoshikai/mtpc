@@ -5,8 +5,7 @@ import numpy as np, pandas as pd
 from scipy.stats import spearmanr
 from sklearn.metrics import roc_auc_score, average_precision_score, \
         mean_squared_error, mean_absolute_error, r2_score
-import cuml
-import cupy
+from sklearn.linear_model import LinearRegression, LogisticRegression
 
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
 sys.path += [f'{WORKDIR}', f'{WORKDIR}/mtpc']
@@ -18,11 +17,13 @@ def predict_patch(X_train: np.ndarray, X_test: np.ndarray,
         is_reg: bool, result_dir: str, seed: Optional[int]):
 
     logger = get_logger('predict_patch')
-    if os.path.exists(f"{result_dir}/score.csv") \
-            and os.path.exists(f"{result_dir}/model.pkl"):
+    for basename in ['score.csv', 'train_score.csv', 'model.pkl']:
+        if not os.path.exists(f"{result_dir}/{basename}"):
+            break
+    else:
         logger.info(f"all results of {result_dir} already exists.")
         return
-    
+
     logger.info(f"predicting {result_dir}...")
     os.makedirs(result_dir, exist_ok=True)
 
@@ -44,33 +45,36 @@ def predict_patch(X_train: np.ndarray, X_test: np.ndarray,
     # Random state
     if seed is not None:
         set_random_seed(seed)
-        cupy.random.seed(seed)
 
+    dfs = {}
     if is_reg:
-        model = cuml.LinearRegression(copy_X=True)
+        model = LinearRegression(copy_X=True, )
         model.fit(X_train.copy(), y_train.copy())
-        y_pred_test = model.predict(X_test)
-        res = spearmanr(y_pred_test, y_test)
-        df_score = pd.DataFrame({'score': {
-            'RMSE': mean_squared_error(y_test, y_pred_test)**0.5,
-            'MAE': mean_absolute_error(y_test, y_pred_test),
-            'R^2': r2_score(y_test, y_pred_test), 
-            'rho': res.statistic,
-            'p_rho': res.pvalue
-        }})
+
+        for X, y, label in zip([X_train, X_test], [y_train, y_test], ['train', 'test']):
+            y_pred = model.predict(X)
+            res = spearmanr(y_pred, y)
+            dfs[label] = pd.DataFrame({'score': {
+                'RMSE': mean_squared_error(y, y_pred)**0.5,
+                'MAE': mean_absolute_error(y, y_pred),
+                'R^2': r2_score(y, y_pred), 
+                'rho': res.statistic,
+                'p_rho': res.pvalue
+            }})
 
     else:
-        model = cuml.LogisticRegression()
+        model = LogisticRegression()
         model.fit(X_train.copy(), y_train.copy())
-        y_pred = model.predict(X_test)
-        df_score = pd.DataFrame({'score': {
-            'AUROC': roc_auc_score(y_test, y_pred),
-            'AUPR': average_precision_score(y_test, y_pred)
-        }})
-    df_score.to_csv(f"{result_dir}/score.csv")
+        for X, y, label in zip([X_train, X_test], [y_train, y_test], ['train', 'test']):
+            y_pred = model.predict(X)
+            dfs[label] = pd.DataFrame({'score': {
+                'AUROC': roc_auc_score(y, y_pred),
+                'AUPR': average_precision_score(y, y_pred)
+            }})
+    dfs['test'].to_csv(f"{result_dir}/score.csv")
+    dfs['train'].to_csv(f"{result_dir}/train_score.csv")
     with open(f"{result_dir}/model.pkl", 'wb') as f:
         pickle.dump(model, f)
-
 
 dfp = pd.read_csv(f"{WORKDIR}/mtpc/data/target/patch.csv", index_col=0)
 dfa = pd.read_csv(f"{WORKDIR}/mtpc/data/target/add_patch.csv", index_col=0)

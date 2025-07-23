@@ -174,7 +174,7 @@ test_data = StackDataset(test_input_data, test_target_data)
 prefetch_factor = 5 if args.num_workers > 0 else None
 print(f"{len(train_data)=}, {len(test_data)=}")
 
-train_loader = DataLoader(train_data, args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
+train_loader = DataLoader(train_data, args.batch_size, shuffle=True, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor, generator=torch.Generator())
 test_loader = DataLoader(test_data, args.batch_size*2, shuffle=False, num_workers=args.num_workers, pin_memory=True, prefetch_factor=prefetch_factor)
 
 from src.predict import predict
