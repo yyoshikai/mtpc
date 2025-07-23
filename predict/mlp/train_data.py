@@ -4,7 +4,6 @@ from glob import glob
 WORKDIR = os.environ.get('WORKDIR', '/workspace')
 sys.path += [f'{WORKDIR}/mtpc', WORKDIR]
 from src.model.backbone import structures
-from src.utils import RANDOM_STATE
 
 # Argument
 parser = ArgumentParser()
