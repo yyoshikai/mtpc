@@ -10,7 +10,7 @@ try:
     from tifffile import TiffFile
 except ModuleNotFoundError:
     pass
-from ..utils.logger import get_logger
+from ..utils.logger import get_logger, LambdaFilter
 
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
 DDIR = f"{WORKDIR}/cheminfodata/mtpc"
@@ -61,6 +61,8 @@ class MTPCUHRegionDataset(Dataset[Image.Image]):
     def __len__(self):
         return len(self.patch_poss)
 
+getLogger('tifffile').addFilter(LambdaFilter(lambda record: 
+        'OME series cannot handle discontiguous storage (' not in record.msg))
 class MTPCVDRegionDataset(Dataset[Image.Image]):
     def __init__(self, wsi_idx, region_idx):
         with TiffFile(f"{DDIR}/VD261/HE/{wsi_idx}/{region_idx}.tif") as tif:
