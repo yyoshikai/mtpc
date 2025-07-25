@@ -14,5 +14,3 @@ for path in tqdm(sorted(glob("results/**/resnet50.pth", recursive=True))):
     
     if n_nan > 0:
         print(f"{path}: {n_nan}/{n_param}")
-
-print(f"checked {len(paths)} weights.")

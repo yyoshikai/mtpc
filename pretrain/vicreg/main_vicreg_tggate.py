@@ -143,9 +143,8 @@ def main(args):
         backbone_weights = None
     model = VICReg(args, backbone_weights).cuda(gpu)
     if args.init_weight is not None:
-        load = model.backbone.load_state_dict(torch.load(args.init_weight, weights_only=True), strict=False)
-        print(load)
-
+        model.backbone.load_state_dict(torch.load(args.init_weight, weights_only=True))
+        
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu])
     optimizer = LARS(
@@ -156,17 +155,6 @@ def main(args):
         lars_adaptation_filter=exclude_bias_and_norm,
     )
 
-    """
-    if (args.exp_dir / "model.pth").is_file():
-        if args.rank == 0:
-            print("resuming from checkpoint")
-        ckpt = torch.load(args.exp_dir / "model.pth", map_location="cpu")
-        start_epoch = ckpt["epoch"]
-        model.load_state_dict(ckpt["model"])
-        optimizer.load_state_dict(ckpt["optimizer"])
-    else:
-        start_epoch = 0
-    """
     start_epoch = 0
         
     start_time = last_logging = time.time()

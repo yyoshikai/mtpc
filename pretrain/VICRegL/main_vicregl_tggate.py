@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import time
+import warnings
 
 from collections import defaultdict
 import numpy as np
@@ -131,6 +132,9 @@ def main(args):
     dist.broadcast_object_list(result_exists, src=0)
     if result_exists[0]: sys.exit()
 
+    # armだと発生する警告らしい。問題なさそうだが, 大量(workerごと)に表示されるので無視する。
+    # 参考: https://github.com/pytorch/vision/issues/8574
+    warnings.filterwarnings('ignore', "np_h += np.array(hue_factor * 255).astype(np.uint8)", RuntimeWarning)
 
     print(args)
     gpu = torch.device(args.device)
@@ -156,23 +160,13 @@ def main(args):
 
     model = VICRegL(args).cuda(gpu)
     if args.init_weight is not None:
-        load = model.backbone.load_state_dict(torch.load(args.init_weight), strict=False)
-        print(load)
-        print(load, file=stats_file)
+        model.backbone.load_state_dict(torch.load(args.init_weight), weights_only=True)
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu], bucket_cap_mb=100)
 
     optimizer = build_optimizer(args, model)
 
-    if (args.exp_dir / "model.pth").is_file():
-        if args.rank == 0:
-            print("resuming from checkpoint")
-        ckpt = torch.load(args.exp_dir / "model.pth", map_location="cpu")
-        start_epoch = ckpt["epoch"]
-        model.load_state_dict(ckpt["model"])
-        optimizer.load_state_dict(ckpt["optimizer"])
-    else:
-        start_epoch = 0
+    start_epoch = 0
 
     if args.evaluate_only:
         evaluate(model, {}, val_loader, args, 0, 0.0, stats_file, gpu)

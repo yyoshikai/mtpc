@@ -12,8 +12,8 @@ import os
 import random
 import sys
 import time
+import warnings
 from pathlib import Path
-from argparse import ArgumentParser
 
 from PIL import Image, ImageOps, ImageFilter
 import numpy as np
@@ -78,6 +78,10 @@ def main():
         print(f"{args.checkpoint_dir} has already finished.", flush=True)
         sys.exit()
 
+    # armだと発生する警告らしい。問題なさそうだが, 大量(workerごと)に表示されるので無視する。
+    # 参考: https://github.com/pytorch/vision/issues/8574
+    warnings.filterwarnings('ignore', "np_h += np.array(hue_factor * 255).astype(np.uint8)", RuntimeWarning)
+
     dist.init_process_group('nccl' if torch.cuda.is_available() else 'gloo')
     args.rank = dist.get_rank()
     args.world_size = dist.get_world_size()
@@ -110,8 +114,7 @@ def main():
     
     # load weight
     if args.init_weight is not None:
-        load = model.backbone.load_state_dict(torch.load(args.init_weight), strict=False)
-        print(load)
+        model.backbone.load_state_dict(torch.load(args.init_weight), weights_only=True)
 
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu], bucket_cap_mb=100)
 
@@ -127,7 +130,6 @@ def main():
         get_lr = get_lr_warmup_cosine
 
     start_epoch = 0
-
 
     # dataset = torchvision.datasets.ImageFolder(args.data / 'train', Transform())
     dataset = get_data(args.mtpc_main, args.mtpc_add, args.tggate, args.seed, args.mtpc_main_split, args.mtpc_add_split)
