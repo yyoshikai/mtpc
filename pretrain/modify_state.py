@@ -17,7 +17,6 @@ for mpath in sorted(glob(f"./results/**/model.pth", recursive=True)):
     
     if scheme != 'VICRegL': continue
     if os.path.exists(out_path):
-        logger.info(f"Already processed: {mpath}")
         continue
 
     # parse args & check epoch
