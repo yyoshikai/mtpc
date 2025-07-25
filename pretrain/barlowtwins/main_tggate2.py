@@ -78,17 +78,19 @@ def main():
         print(f"{args.checkpoint_dir} has already finished.", flush=True)
         sys.exit()
 
-    # armだと発生する警告らしい。問題なさそうだが, 大量(workerごと)に表示されるので無視する。
-    # 参考: https://github.com/pytorch/vision/issues/8574
-    warnings.filterwarnings('ignore', "np_h += np.array(hue_factor * 255).astype(np.uint8)", RuntimeWarning)
 
     dist.init_process_group('nccl' if torch.cuda.is_available() else 'gloo')
+
+    # armだと発生する警告らしい。問題なさそうだが, 大量(workerごと)に表示されるので無視する。
+    # 参考: https://github.com/pytorch/vision/issues/8574
+    warnings.filterwarnings('ignore', "invalid value encountered in cast", RuntimeWarning)
+
     args.rank = dist.get_rank()
     args.world_size = dist.get_world_size()
     gpu = args.rank % torch.cuda.device_count()
 
     if args.seed is not None:
-        ddp_set_random_seed(args.seed)
+        ddp_set_random_seed(args.seed, torch.device('cuda', index=gpu))
 
     if args.rank == 0:
         args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -182,6 +184,8 @@ def main():
         # save final model
         torch.save(model.module.backbone.state_dict(),
                    args.checkpoint_dir / 'resnet50.pth')
+        
+    dist.destroy_process_group()
 
 def get_lr_warmup_cosine(step, n_epoch, loader_size, batch_size):
     max_steps = n_epoch * loader_size
