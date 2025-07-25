@@ -13,7 +13,7 @@ parser.add_argument('--pretrain', required=True)
 parser.add_argument('--from-feature', action='store_true')
 parser.add_argument('--studyname')
 parser.add_argument("--structure", choices=structures)
-parser.add_argument('--split', choices=['n_ak_bin', 'n_ak_bin_noout'], required=True)
+parser.add_argument('--split', required=True)
 
 # training
 parser.add_argument("--batch-size", type=int, default=64)
@@ -36,7 +36,7 @@ if args.num_workers is None:
     args.num_workers = 1 if args.from_feature else 28
 if args.studyname is not None:
     args.studyname = f"{'feature_mlp' if args.from_feature else 'finetune'}/{args.pretrain}"
-result_dir = f"finetune/{args.studyname}/dyskeratosis/data_wsi/{args.split}/0"
+result_dir = f"finetune/{args.studyname}/dyskeratosis/data_wsi/{args.split}"
 args.use_val = True
 
 # First check whether or not to do training.
@@ -79,7 +79,7 @@ y_train = pd.read_csv(f"{WORKDIR}/mtpc/data/target/patch.csv", index_col=0)['n_a
 y_test = pd.read_csv(f"{WORKDIR}/mtpc/data/target/add_patch.csv", index_col=0)['dyskeratosis'].values
 
 ## mask
-fold = np.load(f"{WORKDIR}/mtpc/data/split/main/wsi/{args.split}/0.npy")
+fold = np.load(f"{WORKDIR}/mtpc/data/split/main/wsi/{args.split}.npy")
 train_mask = fold >= 0 # validationも使うので
 test_mask = np.isfinite(y_test)
 y_train = y_train[train_mask]
