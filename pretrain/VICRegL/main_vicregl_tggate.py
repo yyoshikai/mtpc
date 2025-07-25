@@ -116,21 +116,17 @@ def get_arguments():
 def main(args):
 
     torch.backends.cudnn.benchmark = True
-    init_distributed_mode(args)
 
     
     # If result exists, quit training
     result_exists = [False]
-    if args.rank == 0:
-        if os.path.exists(args.exp_dir / 'model.pth'):
-            checkpoint = torch.load(args.exp_dir / 'model.pth')
-            result_exists[0] = checkpoint['epoch'] == args.epochs
-            if result_exists[0]:
-                print(f"{args.exp_dir} has already finished.", flush=True)
-        else:
-            result_exists[0] = False
-    dist.broadcast_object_list(result_exists, src=0)
-    if result_exists[0]: sys.exit()
+    if os.path.exists(args.exp_dir / 'model.pth'):
+        checkpoint = torch.load(args.exp_dir / 'model.pth')
+        result_exists[0] = checkpoint['epoch'] == args.epochs
+        if result_exists[0]:
+            print(f"{args.exp_dir} has already finished.", flush=True)
+            sys.exit()
+    init_distributed_mode(args)
 
     # armだと発生する警告らしい。問題なさそうだが, 大量(workerごと)に表示されるので無視する。
     # 参考: https://github.com/pytorch/vision/issues/8574
