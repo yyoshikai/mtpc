@@ -34,18 +34,20 @@ if not args.from_feature:
     assert args.structure is not None
 if args.num_workers is None:
     args.num_workers = 1 if args.from_feature else 28
-if args.studyname is not None:
+if args.studyname is None:
     args.studyname = f"{'feature_mlp' if args.from_feature else 'finetune'}/{args.pretrain}"
-result_dir = f"finetune/{args.studyname}/dyskeratosis/data_wsi/{args.split}"
+result_dir = f"{args.studyname}/dyskeratosis/data_wsi/{args.split}"
 args.use_val = True
 
 # First check whether or not to do training.
-## Whether result exists
-if os.path.exists(f"{result_dir}/score.csv") \
-        and ((not args.save_steps) or os.path.exists(f"{result_dir}/steps.csv")) \
-        and ((not args.save_model) or (len(glob(f"{result_dir}/best_model_*.pth")) >= 1)) \
-        and ((not args.save_pred) or os.path.exists(f"{result_dir}/preds.csv")):
-    print(f"All result exists for {result_dir}")
+## Whether result exists (copied from predict())
+result_names = ['score.csv', 'train_score.csv']
+if args.save_steps: result_names.append('steps.csv')
+if args.save_model: result_names.append('best_model_*.pth')
+if args.save_pred:
+    result_names += ['preds.csv', 'train_preds.csv']
+if all(len(glob(f"{result_dir}/{name}")) > 0 for name in result_names):
+    print(f"All results exist for {result_dir}")
     sys.exit()
 
 # import
