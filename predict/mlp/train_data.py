@@ -9,16 +9,11 @@ from src.model.backbone import structures
 parser = ArgumentParser()
 
 ## model
-parser.add_argument("--fname")
-
+parser.add_argument('--pretrain', required=True)
+parser.add_argument('--from-feature', action='store_true')
 parser.add_argument('--studyname')
 parser.add_argument("--structure", choices=structures)
-
-## split
 parser.add_argument('--split', choices=['n_ak_bin', 'n_ak_bin_noout'], required=True)
-
-## weight
-parser.add_argument('--weight')
 
 # training
 parser.add_argument("--batch-size", type=int, default=64)
@@ -32,24 +27,20 @@ parser.add_argument('--save-model', action='store_true')
 parser.add_argument('--save-pred', action='store_true')
 parser.add_argument('--lr', type=float, default=0.001)
 parser.add_argument('--optimizer', default='adam')
-parser.add_argument('--seed', type=int)
+parser.add_argument('--seed', type=int, required=True)
 args = parser.parse_args()
 ## set default args
-from_feature = args.fname is not None
-if not from_feature:
+if not args.from_feature:
     assert args.structure is not None
 if args.num_workers is None:
-    args.num_workers = 1 if from_feature else 28
+    args.num_workers = 1 if args.from_feature else 28
+if args.studyname is not None:
+    args.studyname = f"{'feature_mlp' if args.from_feature else 'finetune'}/{args.pretrain}"
+result_dir = f"finetune/{args.studyname}/dyskeratosis/data_wsi/{args.split}/0"
 args.use_val = True
 
 # First check whether or not to do training.
 ## Whether result exists
-if from_feature:
-    assert args.studyname is None
-    result_dir = f"feature_mlp/{args.fname}/dyskeratosis/data_wsi/{args.split}/0"
-else:
-    assert args.studyname is not None
-    result_dir = f"finetune/{args.studyname}/dyskeratosis/data_wsi/{args.split}/0"
 if os.path.exists(f"{result_dir}/score.csv") \
         and ((not args.save_steps) or os.path.exists(f"{result_dir}/steps.csv")) \
         and ((not args.save_model) or (len(glob(f"{result_dir}/best_model_*.pth")) >= 1)) \
@@ -89,7 +80,7 @@ y_test = pd.read_csv(f"{WORKDIR}/mtpc/data/target/add_patch.csv", index_col=0)['
 
 ## mask
 fold = np.load(f"{WORKDIR}/mtpc/data/split/main/wsi/{args.split}/0.npy")
-train_mask = fold > 0
+train_mask = fold >= 0 # validationも使うので
 test_mask = np.isfinite(y_test)
 y_train = y_train[train_mask]
 y_test = y_test[test_mask]
@@ -97,11 +88,11 @@ train_target_data = TensorDataset(y_train)
 test_target_data = TensorDataset(y_test)
 
 ## input
-if from_feature:
-    X_main = np.load(f"{WORKDIR}/mtpc/featurize/{args.fname}/feat_all.npy").astype(np.float32)
+if args.from_feature:
+    X_main = np.load(f"{WORKDIR}/mtpc/featurize/{args.pretrain}/feat_all.npy").astype(np.float32)
     train_input_data = TensorDataset(X_main[train_mask])
 
-    X_add = np.load(f"{WORKDIR}/mtpc/featurize/{args.fname}/feat_added.npy").astype(np.float32)
+    X_add = np.load(f"{WORKDIR}/mtpc/featurize/{args.pretrain}/feat_added.npy").astype(np.float32)
     test_input_data = TensorDataset(X_add[test_mask])
 
     ### check nan
@@ -132,35 +123,30 @@ else:
     test_input_data = ConcatDataset(datas)
     test_input_data = Subset(test_input_data, np.where(test_mask)[0])
 
-
 # model
 output_mean = np.mean(y_train)
 output_std = np.std(y_train)
-if from_feature:
+if args.from_feature:
     assert args.structure is None
     input_size = X_main.shape[1]
     model = MLP(input_size, output_mean, output_std)
 else:
     backbone = get_backbone(args.structure)
     model = PredictModel(backbone, output_mean, output_std)
-    if args.weight is not None:
-        state = torch.load(args.weight, weights_only=True)
-
-        ## check nan
-        nf_path = f"{result_dir}/nonfinite_params.txt"
-        n_nf = 0
-        with open(nf_path, 'w') as f:
-            for name, param in state.items():
-                if torch.any(~torch.isfinite(param)):
-                    logger.warning(f"{name} contains nonfinite values.")
-                    f.write(name+'\n')
-                    n_nf += 1
-        if n_nf > 0: 
-            sys.exit()
-        else:
-            os.remove(nf_path)
-
-        logger.info(model.backbone.load_state_dict(state))
+    ## load state
+    state = torch.load(f"{WORKDIR}/mtpc/pretrain/results/{args.pretrain}/resnet50.pth", weights_only=True)
+    ### check nan
+    nf_path = f"{result_dir}/nonfinite_params.txt"
+    n_nf = 0
+    with open(nf_path, 'w') as f:
+        for name, param in state.items():
+            if torch.any(~torch.isfinite(param)):
+                logger.warning(f"{name} contains nonfinite values.")
+                f.write(name+'\n')
+                n_nf += 1
+    if n_nf > 0: sys.exit()
+    else: os.remove(nf_path)
+    logger.info(model.backbone.load_state_dict(state))
     
     ## get transform
     transforms = backbone.get_transforms()

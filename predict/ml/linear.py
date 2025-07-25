@@ -25,6 +25,7 @@ def predict_patch(X_train: np.ndarray, X_test: np.ndarray,
         return
 
     logger.info(f"predicting {result_dir}...")
+    logger.info(f"len(train_data)={len(X_train)}, len(test_data)={len(X_test)}")
     os.makedirs(result_dir, exist_ok=True)
 
     # check if X and y are finite
