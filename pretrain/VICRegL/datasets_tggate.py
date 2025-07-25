@@ -53,6 +53,7 @@ class ImageNetNumpyDataset(Dataset):
 
 def build_loader(args, is_train=True):
     dataset = build_dataset(args, is_train)
+    print(f"{len(dataset)=}")
 
     batch_size = args.batch_size
     if (not is_train) and args.val_batch_size == -1:
@@ -74,7 +75,7 @@ def build_dataset(args, is_train=True):
     transform = build_transform(args, is_train=is_train)
 
     args.num_classes = 5
-    dataset = get_data(args.mtpc_main, args.mtpc_add, args.tggate)
+    dataset = get_data(args.mtpc_main, args.mtpc_add, args.tggate, args.seed, args.mtpc_main_split, args.mtpc_add_split)
     dataset = ApplyDataset(dataset, transform)
     dataset = StackDataset(dataset, ConstantDataset(0, len(dataset)))
 

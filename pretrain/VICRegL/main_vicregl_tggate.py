@@ -43,6 +43,8 @@ def get_arguments():
     parser.add_argument('--mtpc-main', type=float, default=0.0)
     parser.add_argument('--mtpc-add', type=float, default=0.0)
     parser.add_argument('--tggate', type=float, default=0.0)
+    parser.add_argument('--mtpc-main-split', type=str, default=None)
+    parser.add_argument('--mtpc-add-split', type=str, default=None)
 
     parser.add_argument("--size-crops", type=int, nargs="+", default=[224, 96])
     parser.add_argument("--num-crops", type=int, nargs="+", default=[2, 6])

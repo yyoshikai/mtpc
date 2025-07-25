@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, ConcatDataset, Dataset
+from torch.utils.data import DataLoader, ConcatDataset, Dataset, Subset
 from PIL import Image
 from torch.optim import lr_scheduler as lrs
 WORKDIR = os.environ.get('WORKDIR', "/workspace")
@@ -26,7 +26,7 @@ from src.model.state_dict import state_modifiers
 
 DDIR = f"{WORKDIR}/cheminfodata/mtpc"
 
-def get_data(mtpc_main: float, mtpc_add: float, tggate: float, seed: int=0) -> Dataset[Image.Image]:
+def get_data(mtpc_main: float, mtpc_add: float, tggate: float, seed: int=0, mtpc_main_split: str=None, mtpc_add_split: str=None) -> Dataset[Image.Image]:
     assert all(isinstance(arg, float) for arg in [mtpc_main, mtpc_add, tggate])
 
     datas = []
@@ -41,6 +41,9 @@ def get_data(mtpc_main: float, mtpc_add: float, tggate: float, seed: int=0) -> D
                     continue
                 data.append(MTPCRegionDataset(wsi_name, region_idx, 256))
         data = ConcatDataset(data)
+        if mtpc_main_split is not None:
+            split = np.load(f"{WORKDIR}/mtpc/data/split/main/{mtpc_main_split}.npy")
+            data = Subset(data, np.where(split >= 0)[0])
         if mtpc_main < 1:
             data = SampleDataset(data, r=mtpc_main, seed=seed)
         datas.append(data)
@@ -52,6 +55,9 @@ def get_data(mtpc_main: float, mtpc_add: float, tggate: float, seed: int=0) -> D
         for wsi_idx in range(1, 55):
             data += [MTPCVDRegionDataset(wsi_idx, region_idx) for region_idx in range(1, 4)]
         data = ConcatDataset(data)
+        if mtpc_add_split is not None:
+            split = np.load(f"{WORKDIR}/mtpc/data/split/add/{mtpc_add_split}.npy")
+            data = Subset(data, np.where(split >= 0)[0])
         if mtpc_add < 1:
             data = SampleDataset(data, r=mtpc_add, seed=seed)
         datas.append(data)

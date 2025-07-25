@@ -35,6 +35,8 @@ parser = argparse.ArgumentParser(description='Barlow Twins Training')
 parser.add_argument('--mtpc-main', type=float, default=0.0)
 parser.add_argument('--mtpc-add', type=float, default=0.0)
 parser.add_argument('--tggate', type=float, default=0.0)
+parser.add_argument('--mtpc-main-split', type=str, default=None)
+parser.add_argument('--mtpc-add-split', type=str, default=None)
 parser.add_argument('--workers', default=8, type=int, metavar='N',
                     help='number of data loader workers')
 parser.add_argument('--epochs', default=1000, type=int, metavar='N',
@@ -95,7 +97,7 @@ def main():
     torch.cuda.set_device(gpu)
     torch.backends.cudnn.benchmark = True
 
-    model = BarlowTwins(args, backbone_weights=None).cuda(gpu)
+    model = BarlowTwins(args).cuda(gpu)
     model = nn.SyncBatchNorm.convert_sync_batchnorm(model)
     param_weights = []
     param_biases = []
@@ -128,7 +130,8 @@ def main():
 
 
     # dataset = torchvision.datasets.ImageFolder(args.data / 'train', Transform())
-    dataset = get_data(args.mtpc_main, args.mtpc_add, args.tggate)
+    dataset = get_data(args.mtpc_main, args.mtpc_add, args.tggate, args.seed, args.mtpc_main_split, args.mtpc_add_split)
+    print(f"{len(dataset)=}")
     dataset = ApplyDataset(dataset, Transform())
     sampler = DistributedSampler(dataset, seed=args.seed or 0)
     assert args.batch_size % args.world_size == 0

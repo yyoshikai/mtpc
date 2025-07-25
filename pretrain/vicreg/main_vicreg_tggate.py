@@ -40,6 +40,8 @@ def get_arguments():
     parser.add_argument('--mtpc-main', type=float, default=0.0)
     parser.add_argument('--mtpc-add', type=float, default=0.0)
     parser.add_argument('--tggate', type=float, default=0.0)
+    parser.add_argument('--mtpc-main-split', type=str, default=None)
+    parser.add_argument('--mtpc-add-split', type=str, default=None)
 
     # Checkpoints
     parser.add_argument("--exp-dir", type=Path, default="./exp",
@@ -119,7 +121,8 @@ def main(args):
     transforms = aug.TrainTransform()
 
     # dataset = datasets.ImageFolder(args.data_dir / "train", transforms)
-    dataset = get_data(args.mtpc_main, args.mtpc_add, args.tggate)
+    dataset = get_data(args.mtpc_main, args.mtpc_add, args.tggate, args.seed, args.mtpc_main_split, args.mtpc_add_split)
+    print(f"{len(dataset)=}")
     dataset = ApplyDataset(dataset, transforms)
 
     sampler = DistributedSampler(dataset, shuffle=True, seed=args.seed or 0)
