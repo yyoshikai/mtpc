@@ -114,7 +114,7 @@ def main():
     
     # load weight
     if args.init_weight is not None:
-        model.backbone.load_state_dict(torch.load(args.init_weight), weights_only=True)
+        model.backbone.load_state_dict(torch.load(args.init_weight, weights_only=True))
 
     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[gpu], bucket_cap_mb=100)
 
