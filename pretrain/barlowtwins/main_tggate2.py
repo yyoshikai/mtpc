@@ -91,7 +91,7 @@ def main():
         ddp_set_random_seed(args.seed)
 
     if args.rank == 0:
-        args.checkpoint_dir.mkdir(parents=True)
+        args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         stats_file = open(args.checkpoint_dir / 'stats.txt', 'w', buffering=1)
         steps_file = open(args.checkpoint_dir / 'steps.txt', 'w', buffering=1)
         print(' '.join(sys.argv))
