@@ -1,8 +1,8 @@
 from glob import glob
 import torch
+from tqdm import tqdm
 
-paths = sorted(glob("results/**/resnet50.pth", recursive=True))
-for path in paths:
+for path in tqdm(sorted(glob("results/**/resnet50.pth", recursive=True))):
     state = torch.load(path, weights_only=True, map_location='cpu')
 
     n_nan = 0
