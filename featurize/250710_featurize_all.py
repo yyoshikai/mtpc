@@ -16,6 +16,8 @@ parser.add_argument('--num-workers', type=int, default=1)
 parser.add_argument('--batch-size', type=int, default=512)
 parser.add_argument('--tqdm', action='store_true')
 parser.add_argument('--seed', nargs='+', default=[0,1,2,3,4], type=int)
+parser.add_argument('--rank', type=int, default=0)
+parser.add_argument('--size', type=int, default=1)
 args = parser.parse_args()
 
 backbone = get_backbone('resnet50')
@@ -28,7 +30,10 @@ transform = T.Compose([
 ])
 
 for seed in args.seed:
-    for path in sorted(glob(f"{WORKDIR}/mtpc/pretrain/results/250715_main/{seed}/**/resnet50.pth", recursive=True)):
+    paths = sorted(glob(f"{WORKDIR}/mtpc/pretrain/results/250715_main/{seed}/**/resnet50.pth", recursive=True))
+    paths = paths[args.rank::args.size]
+
+    for path in paths:
         name = path.removeprefix(f"{WORKDIR}/mtpc/pretrain/results/") \
                 .removesuffix("/resnet50.pth")
 
