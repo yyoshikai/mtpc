@@ -109,6 +109,7 @@ def predict(model: nn.Module,
 
 
     # Train
+    os.makedirs(result_dir, exist_ok=True)
     context = _tqdm if tqdm else lambda x: x
     losses = []
     if val_loader is not None:
